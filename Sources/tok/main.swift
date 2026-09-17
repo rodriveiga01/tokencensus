@@ -82,7 +82,7 @@ case "share-card":
     let out = args.dropFirst().first ?? "share-card.png"
     if renderCard(out: out, lines: [
         "TOKENCENSUS — today",
-        "\(fmt(day.total)) tokens · \(day.sessions) sessions",
+        "\(fmt(day.total)) tokens · \(day.sessions) session\(day.sessions == 1 ? "" : "s")",
         "top model \(top)",
         "week \(fmt(w.used))" + (w.cap.map { " / \(fmt($0))" } ?? ""),
         "Tibo resets caught: \(resets)",
@@ -136,25 +136,34 @@ default:
 import AppKit
 
 /// Minimal dark card renderer. Facts only.
+/// Draws into an explicit sRGB bitmap (never NSImage.lockFocus — its color
+/// handling varies headless and once shipped a light-gray card with dark
+/// text). Top-left layout, vertically centered block.
 func renderCard(out: String, lines: [String]) -> Bool {
     let W = 900, H = 540
-    let img = NSImage(size: NSSize(width: W, height: H))
-    img.lockFocus()
-    NSColor(red: 0.07, green: 0.08, blue: 0.11, alpha: 1).setFill()
-    NSRect(x: 0, y: 0, width: W, height: H).fill()
+    guard let cs = CGColorSpace(name: CGColorSpace.sRGB),
+          let ctx = CGContext(data: nil, width: W, height: H, bitsPerComponent: 8, bytesPerRow: 0,
+                              space: cs, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return false }
+    ctx.setFillColor(red: 0.07, green: 0.08, blue: 0.11, alpha: 1)
+    ctx.fill(CGRect(x: 0, y: 0, width: W, height: H))
+    // Non-flipped context = bottom-left origin, same as the classic
+    // lockFocus layout (empirically: flipped:true renders upside down here).
+    let nsctx = NSGraphicsContext(cgContext: ctx, flipped: false)
+    NSGraphicsContext.saveGraphicsState()
+    NSGraphicsContext.current = nsctx
     let title = [NSAttributedString.Key.font: NSFont.boldSystemFont(ofSize: 34),
                  NSAttributedString.Key.foregroundColor: NSColor.white] as [NSAttributedString.Key: Any]
     let body = [NSAttributedString.Key.font: NSFont.systemFont(ofSize: 26),
                 NSAttributedString.Key.foregroundColor: NSColor(white: 0.88, alpha: 1)] as [NSAttributedString.Key: Any]
-    var y = H - 90
+    var y = H - 110 // bottom-up layout: 6-line block (~320px) centered in 540px
     for (i, ln) in lines.enumerated() {
-        (ln as NSString).draw(at: NSPoint(x: 60, y: y), withAttributes: i == 0 ? title : body)
+        (ln as NSString).draw(at: NSPoint(x: 60, y: CGFloat(y)), withAttributes: i == 0 ? title : body)
         y -= (i == 0 ? 70 : 52)
     }
-    img.unlockFocus()
-    guard let tiff = img.tiffRepresentation,
-          let rep = NSBitmapImageRep(data: tiff),
-          let png = rep.representation(using: .png, properties: [:]) else { return false }
+    NSGraphicsContext.restoreGraphicsState()
+    guard let cg = ctx.makeImage() else { return false }
+    let rep = NSBitmapImageRep(cgImage: cg)
+    guard let png = rep.representation(using: .png, properties: [:]) else { return false }
     do { try png.write(to: URL(fileURLWithPath: out)); return true }
     catch { return false }
 }

@@ -12,6 +12,8 @@
 >
 > *(Fun fact: the typing animation above phones home more than this app ever will. The app makes zero network calls.)*
 
+![TokenCensus share card — today's tokens, top model, week vs cap, all local](docs/images/share-card.png)
+
 ## 📟 Receipt of the day
 
 ```sh
