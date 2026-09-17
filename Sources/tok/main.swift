@@ -1,5 +1,5 @@
 import Foundation
-import TokenLedgerCore
+import TokenCensusCore
 
 func fmt(_ n: Int) -> String {
     let f = NumberFormatter(); f.numberStyle = .decimal; f.groupingSeparator = ","
@@ -120,7 +120,7 @@ case "flex":
     print(line)
 
 case "zen":
-    // TokenLedger principles, `import this` style. Static text, zero reads.
+    // TokenCensus principles, `import this` style. Static text, zero reads.
     print("Counts, not costs.")
     print("Facts, not judgments.")
     print("Gaps badged, never silent zeros.")

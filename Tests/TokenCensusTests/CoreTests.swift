@@ -1,5 +1,5 @@
 import Testing
-@testable import TokenLedgerCore
+@testable import TokenCensusCore
 import Foundation
 
 private func tmp(_ n: String) -> String {

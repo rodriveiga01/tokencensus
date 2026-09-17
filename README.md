@@ -1,12 +1,12 @@
-# 🧾 Token Ledger — pure token counts, local only
+# 🧾 TokenCensus — pure token counts, local only
 
-[![Typing SVG](https://readme-typing-svg.demolab.com/?lines=pure+token+counts,+local+only.;counts,+not+costs.;tibo+did+it+again+%F0%9F%99%8F&center=true&width=600&height=50)](https://git.io/typing-svg)
+[![Typing SVG](https://readme-typing-svg.demolab.com/?lines=pure+token+counts,+local+only.;every+token+counted,+none+interviewed.;tibo+did+it+again+%F0%9F%99%8F&center=true&width=600&height=50)](https://git.io/typing-svg)
 
 ![Swift 6.0](https://img.shields.io/badge/swift-6.0-orange)
 ![macOS 14+](https://img.shields.io/badge/macos-14%2B-blue)
 ![cloud: none — local only](https://img.shields.io/badge/cloud-none_%E2%80%94_local_only-green)
 ![tools: 5](https://img.shields.io/badge/tools-5-purple)
-[![CI](https://github.com/rodriveiga01/token-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/rodriveiga01/token-ledger/actions/workflows/ci.yml)
+[![CI](https://github.com/rodriveiga01/tokencensus/actions/workflows/ci.yml/badge.svg)](https://github.com/rodriveiga01/tokencensus/actions/workflows/ci.yml)
 
 > One hero number. No cost engine, no cloud, no account, no judgment about your 3am burn.
 >
@@ -57,7 +57,7 @@ $tok tibo-pack pack.json   # overnight reset evidence bundle (manual post, no bo
 Menu bar + dashboard:
 
 ```sh
-swift run TokenLedgerApp
+swift run TokenCensusApp
 ```
 
 Run tests:
@@ -74,7 +74,7 @@ swift test   # 13 tests, golden fixtures per tool + dedup + rollup checks
 | `tok today [path]` | This repo today: total, sessions, per-tool, top model |
 | `tok week` | Week used vs cap, reset date |
 | `tok status` | Per-tool detection status + db path |
-| `tok db-path` | Print SQLite path (`~/Library/Application Support/TokenLedger/ledger.db`) |
+| `tok db-path` | Print SQLite path (`~/Library/Application Support/TokenCensus/ledger.db`) |
 | `tok set-cap 5000000` | Set global weekly token cap |
 | `tok share-card out.png` | Local PNG card (today + top model + week + resets) |
 | `tok tibo-pack out.json` | Reset evidence bundle (today/week/resets, JSON) |

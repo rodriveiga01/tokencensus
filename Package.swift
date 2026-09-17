@@ -2,19 +2,19 @@
 import PackageDescription
 
 let package = Package(
-    name: "TokenLedger",
+    name: "TokenCensus",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "TokenLedgerCore", targets: ["TokenLedgerCore"]),
+        .library(name: "TokenCensusCore", targets: ["TokenCensusCore"]),
         .executable(name: "tok", targets: ["tok"]),
-        .executable(name: "TokenLedgerApp", targets: ["TokenLedgerApp"]),
+        .executable(name: "TokenCensusApp", targets: ["TokenCensusApp"]),
     ],
     targets: [
-        .target(name: "TokenLedgerCore", path: "Sources/TokenLedgerCore"),
-        .target(name: "TokenLedgerUI", dependencies: ["TokenLedgerCore"], path: "Sources/TokenLedgerUI"),
+        .target(name: "TokenCensusCore", path: "Sources/TokenCensusCore"),
+        .target(name: "TokenCensusUI", dependencies: ["TokenCensusCore"], path: "Sources/TokenCensusUI"),
         .target(name: "FSEventsBridge", path: "Sources/FSEventsBridge"),
-        .executableTarget(name: "tok", dependencies: ["TokenLedgerCore"], path: "Sources/tok"),
-        .executableTarget(name: "TokenLedgerApp", dependencies: ["TokenLedgerCore", "TokenLedgerUI", "FSEventsBridge"], path: "Sources/TokenLedgerApp"),
-        .testTarget(name: "TokenLedgerCoreTests", dependencies: ["TokenLedgerCore", "TokenLedgerUI"], path: "Tests/TokenLedgerCoreTests"),
+        .executableTarget(name: "tok", dependencies: ["TokenCensusCore"], path: "Sources/tok"),
+        .executableTarget(name: "TokenCensusApp", dependencies: ["TokenCensusCore", "TokenCensusUI", "FSEventsBridge"], path: "Sources/TokenCensusApp"),
+        .testTarget(name: "TokenCensusTests", dependencies: ["TokenCensusCore", "TokenCensusUI"], path: "Tests/TokenCensusTests"),
     ]
 )

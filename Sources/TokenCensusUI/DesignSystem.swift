@@ -1,5 +1,5 @@
 import SwiftUI
-import TokenLedgerCore
+import TokenCensusCore
 
 // MARK: - Shared design system (popover + dashboard speak one language)
 

@@ -5,7 +5,14 @@ import SQLite3
 /// No network, no account. DB path visible via `tok db-path`.
 public final class LedgerStore: Sendable {
     public static func defaultPath() -> String {
-        let dir = NSHomeDirectory() + "/Library/Application Support/TokenLedger"
+        let dir = NSHomeDirectory() + "/Library/Application Support/TokenCensus"
+        // One-time move from the pre-rename home (TokenLedger, <= v1.0.0).
+        // Only when the new home is absent and the old one exists — never destructive.
+        let legacy = NSHomeDirectory() + "/Library/Application Support/TokenLedger"
+        if !FileManager.default.fileExists(atPath: dir + "/ledger.db"),
+           FileManager.default.fileExists(atPath: legacy + "/ledger.db") {
+            try? FileManager.default.moveItem(atPath: legacy, toPath: dir)
+        }
         try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
         return dir + "/ledger.db"
     }

@@ -1,11 +1,11 @@
 import SwiftUI
 import AppKit
-import TokenLedgerCore
-import TokenLedgerUI
+import TokenCensusCore
+import TokenCensusUI
 import FSEventsBridge
 
 @main
-struct TokenLedgerApp: App {
+struct TokenCensusApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     // No Window scene on purpose: the dashboard is an on-demand AppKit
@@ -17,12 +17,12 @@ struct TokenLedgerApp: App {
 }
 
 /// File log for the live pipeline (watcher events, ingests, toggles).
-/// Headless-debuggable: `tail -f ~/Library/Logs/TokenLedger/app.log`.
+/// Headless-debuggable: `tail -f ~/Library/Logs/TokenCensus/app.log`.
 enum Log {
     private static let lock = NSLock()
     static let url: URL = {
         let d = FileManager.default.homeDirectoryForCurrentUser
-            .appendingPathComponent("Library/Logs/TokenLedger")
+            .appendingPathComponent("Library/Logs/TokenCensus")
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d.appendingPathComponent("app.log")
     }()
@@ -183,7 +183,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if dashWindow == nil {
             let vc = NSHostingController(rootView: Dashboard(store: store, onToggleLive: { [weak self] on in self?.setLive(on) }))
             let w = NSWindow(contentViewController: vc)
-            w.title = "Token Ledger"
+            w.title = "TokenCensus"
             w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
             w.setContentSize(NSSize(width: 640, height: 700))
             w.center()

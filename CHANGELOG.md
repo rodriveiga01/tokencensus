@@ -3,6 +3,13 @@
 All notable changes to this project are documented here.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- Renamed TokenLedger → TokenCensus (package, modules, app, repo). The `tok` command is unchanged.
+- Local DB moved to `~/Library/Application Support/TokenCensus`; v1.0.0 databases auto-migrate on first launch. UserDefaults prefs and weekly cap carry over untouched.
+
 ## [1.0.0] - 2026-09-18
 
 First shippable cut.
