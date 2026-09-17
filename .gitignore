@@ -1,0 +1,25 @@
+# Swift / Xcode
+.build/
+*.o
+*.d
+DerivedData/
+*.xcuserdata/
+*.xcodeproj/
+*.xcworkspace/xcuserdata/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# TokenLedger local artifacts (never commit)
+/tibo-pack.json
+/share-card.png
+/card.png
+/pack.json
+*.db
+*.db-wal
+*.db-shm
+
+# Logs
+*.log
