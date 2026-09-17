@@ -90,8 +90,46 @@ case "share-card":
     ]) { print("wrote \(out)") }
     else { print("card-render-failed"); exit(1) }
 
+case "tibo":
+    // Tibo lore corner. Factual reset count + one line of mythology.
+    _ = Engine.ingestAll(into: store)
+    let resets = Tibo.load(from: store)
+    if resets.isEmpty {
+        print("No Tibo resets caught yet. Your Codex window is behaving. Suspiciously well. 👀")
+    } else {
+        let last = resets.last!
+        let df = DateFormatter(); df.dateStyle = .short; df.timeStyle = .short
+        print("Tibo did it again 🙏 — \(resets.count) reset(s) caught")
+        print("last: \(last.window) · \(df.string(from: last.detectedAt))")
+        print("🎉 🎉 🎉")
+    }
+
+case "flex":
+    // Copy-paste receipt line for the viral loop. Stdout only, no cloud.
+    _ = Engine.ingestAll(into: store)
+    let day = store.totals(from: Guard.startOfToday(), to: Date())
+    let w = Guard.week(store: store)
+    let top = day.byModel.max(by: { $0.value < $1.value })?.key ?? "—"
+    var line = "🧾 Today \(fmt(day.total)) tokens across \(day.sessions) sessions · top \(top)"
+    if let cap = w.cap, let p = w.percent {
+        line += " · week \(fmt(w.used))/\(fmt(cap)) (\(Int(p * 100))%)"
+    } else {
+        line += " · week \(fmt(w.used)) (no cap)"
+    }
+    line += " · local-only, no cloud"
+    print(line)
+
+case "zen":
+    // TokenLedger principles, `import this` style. Static text, zero reads.
+    print("Counts, not costs.")
+    print("Facts, not judgments.")
+    print("Gaps badged, never silent zeros.")
+    print("Deltas, never cumulative totals.")
+    print("Forward from install; no backfill begging.")
+    print("Your prompts stay yours. Nothing leaves this machine.")
+
 default:
-    print("usage: tok [ingest [--only=a,b] | today [path] | week | status | db-path | set-cap N | share-card [out.png] | tibo-pack [out.json]]")
+    print("usage: tok [ingest [--only=a,b] | today [path] | week | status | db-path | set-cap N | share-card [out.png] | tibo-pack [out.json] | flex | tibo | zen]")
 }
 
 #if canImport(AppKit)
