@@ -6,7 +6,7 @@
 ![macOS 14+](https://img.shields.io/badge/macos-14%2B-blue)
 ![cloud: none — local only](https://img.shields.io/badge/cloud-none_%E2%80%94_local_only-green)
 ![tools: 5](https://img.shields.io/badge/tools-5-purple)
-![tests: 13 passing](https://img.shields.io/badge/tests-13_passing-brightgreen)
+[![CI](https://github.com/rodriveiga01/token-ledger/actions/workflows/ci.yml/badge.svg)](https://github.com/rodriveiga01/token-ledger/actions/workflows/ci.yml)
 
 > One hero number. No cost engine, no cloud, no account, no judgment about your 3am burn.
 >
@@ -134,7 +134,11 @@ You get a gap badge everywhere totals appear — never a silent zero pretending 
 
 ## Tech Stack
 
-Swift 6, SwiftUI + AppKit (menu bar), SQLite3 (WAL, single file), FSEvents watcher + 5s safety-net timer. No dependencies. No network.
+Swift 6, SwiftUI + AppKit (menu bar), SQLite3 (WAL, single file), FSEvents watcher + 5s safety-net timer. No dependencies. No network. CI builds + tests every push (see badge above).
+
+## License
+
+MIT — see [LICENSE](LICENSE).
 
 ## Privacy
 
