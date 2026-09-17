@@ -116,19 +116,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         liveTicks = 0
         Log.line("timer=\(live ? 2 : 10)s")
         timer = Timer.scheduledTimer(withTimeInterval: live ? 2.0 : 10.0, repeats: true) { [weak self] _ in
-            guard let self else { return }
-            self.refreshLabel()
-            // Safety net while live: periodic background ingest even if
-            // FSEvents drops anything. Near-free when idle (signature skip
-            // + byte-offset tails), so this is the robustness floor.
-            if self.live {
-                self.liveTicks += 1
-                if self.liveTicks % 8 == 0 {
-                    Log.line("safety-due")
-                    Task {
-                        let r = await IngestCoordinator.shared.ingest(into: self.store)
-                        Log.line("safety ran=\(r)")
-                        await MainActor.run { self.refreshLabel() }
+            // Timer blocks are @Sendable on newer SDKs: hop to the main actor first.
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.refreshLabel()
+                // Safety net while live: periodic background ingest even if
+                // FSEvents drops anything. Near-free when idle (signature skip
+                // + byte-offset tails), so this is the robustness floor.
+                if self.live {
+                    self.liveTicks += 1
+                    if self.liveTicks % 8 == 0 {
+                        Log.line("safety-due")
+                        Task {
+                            let r = await IngestCoordinator.shared.ingest(into: self.store)
+                            Log.line("safety ran=\(r)")
+                            await MainActor.run { self.refreshLabel() }
+                        }
                     }
                 }
             }
@@ -225,18 +228,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startAnimTimer() {
         guard animTimer == nil else { return }
-        animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] t in
-            guard let self else { t.invalidate(); return }
-            let p = min(1.0, Date().timeIntervalSince(self.animStart) / 0.8)
-            let eased = 1.0 - pow(1.0 - p, 3.0)
-            let v = self.animFrom + Int(Double(self.animTarget - self.animFrom) * eased)
-            self.displayedTotal = v
-            self.renderLiveLabel(v)
-            if p >= 1.0 {
-                self.displayedTotal = self.animTarget
-                self.renderLiveLabel(self.animTarget)
-                t.invalidate()
-                self.animTimer = nil
+        animTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+            // Same @Sendable hop as armTimer: all label state is @MainActor.
+            // (Invalidates via the stored property, never the callback's
+            // timer param — its sendability differs across SDKs.)
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let p = min(1.0, Date().timeIntervalSince(self.animStart) / 0.8)
+                let eased = 1.0 - pow(1.0 - p, 3.0)
+                let v = self.animFrom + Int(Double(self.animTarget - self.animFrom) * eased)
+                self.displayedTotal = v
+                self.renderLiveLabel(v)
+                if p >= 1.0 {
+                    self.displayedTotal = self.animTarget
+                    self.renderLiveLabel(self.animTarget)
+                    self.animTimer?.invalidate()
+                    self.animTimer = nil
+                }
             }
         }
     }
