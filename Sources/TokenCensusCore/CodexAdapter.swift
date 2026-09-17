@@ -6,7 +6,7 @@ import Foundation
 /// Model from turn_context / thread_settings_applied events in the same file.
 public struct CodexAdapter: Adapter {
     public let tool: ToolID = .codex
-    public let version = "codex.v1"
+    public let version = "codex.v2"
     private let root: String
     public init(root: String? = nil) { self.root = root ?? ToolPaths.codexSessions }
 
@@ -49,31 +49,47 @@ public struct CodexAdapter: Adapter {
 
     private func ingestFile(_ path: String, store: LedgerStore) -> Int {
         var added = 0
+        let rel = path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
+        // Context survives across incremental tails. turn_context /
+        // thread_settings lines arrive once per file, but token_count lines
+        // keep appending for the file's whole life. Without this memory,
+        // every batch after the first is model-less (Sep 2026: 155M Codex
+        // tokens with NULL model and an empty By-model row to show for it).
         var fileModel: String?
         var fileCwd: String?
+        let ctxKey = "codex.ctx.\(rel)"
+        if let raw = store.pref(ctxKey) {
+            let parts = raw.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false).map(String.init)
+            if parts.count == 2 {
+                if !parts[0].isEmpty { fileModel = parts[0] }
+                if !parts[1].isEmpty { fileCwd = parts[1] }
+            }
+        }
         // First pass over NEW lines only: capture model/cwd context then token deltas.
         // turn_context lines may arrive before token_count lines in the same tail window.
         let lines = JSONLTail.newLines(at: path, store: store)
-        // If nothing new but file never yielded a model, re-scan last 30 lines once for context (cheap, bounded).
-        if lines.isEmpty {
-            // Check whether we ever recorded context for this file.
-            return 0
-        }
+        guard !lines.isEmpty else { return 0 }
         var pending: [(ts: Date, last: [String: Any], cwd: String?, model: String?)] = []
         for line in lines {
             guard let data = line.data(using: .utf8),
                   let o = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { continue }
             let type = o["type"] as? String ?? ""
             if type == "turn_context" {
-                if let m = o["model"] as? String { fileModel = m }
-                if let c = o["cwd"] as? String { fileCwd = c }
+                // Real shape nests under payload ({"payload":{"model":…,"cwd":…}}).
+                // Keep the flat top-level read as fallback for older shapes.
+                let pl = o["payload"] as? [String: Any]
+                if let m = (pl?["model"] as? String) ?? (o["model"] as? String) { fileModel = m }
+                if let c = (pl?["cwd"] as? String) ?? (o["cwd"] as? String) { fileCwd = c }
                 continue
             }
             guard type == "event_msg",
                   let pl = o["payload"] as? [String: Any],
                   let ptype = pl["type"] as? String else { continue }
             if ptype == "thread_settings_applied" {
-                if let m = pl["model"] as? String { fileModel = m }
+                // Real shape: payload.thread_settings.{model,cwd}. Flat fallback kept.
+                let ts = pl["thread_settings"] as? [String: Any]
+                if let m = (ts?["model"] as? String) ?? (pl["model"] as? String) { fileModel = m }
+                if let c = (ts?["cwd"] as? String) ?? (pl["cwd"] as? String) { fileCwd = c }
                 continue
             }
             if ptype == "turn_context" || ptype == "turn" {
@@ -106,7 +122,7 @@ public struct CodexAdapter: Adapter {
             // Stable id across processes and runs: relative path + ts + total +
             // content hash. NEVER path.hashValue (randomized per process) and
             // NEVER a Date() fallback (collides within the same millisecond).
-            let rel = path.hasPrefix(root + "/") ? String(path.dropFirst(root.count + 1)) : path
+            // NOTE: id carries no model — re-ingests upsert model/cwd in place.
             let fp = last.sorted(by: { $0.key < $1.key }).map { "\($0.key)=\($0.value)" }.joined(separator: ",")
             let id = "codex:\(rel):\(Int(ts.timeIntervalSince1970 * 1000)):\(total):\(Parse.stableHash(fp))"
             let e = TokenEvent(
@@ -117,6 +133,11 @@ public struct CodexAdapter: Adapter {
                 cwd: cwd ?? fileCwd, repoRoot: RepoResolve.root(for: cwd ?? fileCwd),
                 branch: nil, parserVersion: version)
             if store.upsert(e) { added += 1 }
+        }
+        // Remember context for the next tail: this file's turn_context lines
+        // are already behind the byte offset and will never be re-read.
+        if fileModel != nil || fileCwd != nil {
+            store.setPref(ctxKey, "\(fileModel ?? "")\t\(fileCwd ?? "")")
         }
         return added
     }

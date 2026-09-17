@@ -221,3 +221,56 @@ private func run(_ bin: String, _ args: String...) -> Int32 {
     let t = s.totals(from: now.addingTimeInterval(-60), to: now.addingTimeInterval(60))
     #expect(t.total == 15)
 }
+
+// MARK: - Codex real-world shapes (gpt-5.6 era: model nested under payload)
+
+@Test func codexReadsNestedModelAndCwd() {
+    // Real logs nest model/cwd: turn_context.payload.{model,cwd} and
+    // thread_settings_applied.payload.thread_settings.{model,cwd}.
+    // The flat top-level read alone yields NULL models (Sep 2026: 155M
+    // Codex tokens with no By-model row).
+    let home = tmp("codex-real")
+    let dir = home + "/2026/09/17"
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let lines = [
+        #"{"type":"turn_context","timestamp":1787000000000,"payload":{"model":"gpt-5.6-luna","cwd":"/tmp/proj"}}"#,
+        #"{"type":"event_msg","timestamp":1787000001000,"payload":{"type":"thread_settings_applied","thread_settings":{"model":"gpt-5.6-luna","cwd":"/tmp/proj"}}}"#,
+        #"{"type":"event_msg","timestamp":1787000002000,"payload":{"type":"task_started","cwd":"/tmp/proj"}}"#,
+        #"{"type":"event_msg","timestamp":1787000003000,"payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":90,"output_tokens":10,"total_tokens":100}}}}"#,
+    ].joined(separator: "\n")
+    try? lines.write(toFile: dir + "/rollout-2026-09-17T00-00-00-xyz.jsonl", atomically: true, encoding: .utf8)
+    let s = LedgerStore(path: tmpDB())
+    #expect(CodexAdapter(root: home).ingest(into: s) == 1)
+    let t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+    #expect(t.total == 100)
+    #expect(t.byModel["gpt-5.6-luna"] == 100)
+}
+
+@Test func codexRemembersModelAcrossTails() {
+    // turn_context arrives once; token_count lines append for days. The
+    // second ingest batch must retain the file's model/cwd from prefs,
+    // not stamp NULLs.
+    let home = tmp("codex-remember")
+    let dir = home + "/2026/09/17"
+    try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+    let file = dir + "/rollout-2026-09-17T00-00-00-xyz.jsonl"
+    let first = [
+        #"{"type":"turn_context","timestamp":1787000000000,"payload":{"model":"gpt-5.6-luna","cwd":"/tmp/proj"}}"#,
+        #"{"type":"event_msg","timestamp":1787000001000,"payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":80,"output_tokens":20,"total_tokens":100}}}}"#,
+    ].joined(separator: "\n")
+    try? first.write(toFile: file, atomically: true, encoding: .utf8)
+    let s = LedgerStore(path: tmpDB())
+    let a = CodexAdapter(root: home)
+    #expect(a.ingest(into: s) == 1)
+    // Later turn, bare token_count line, no context — like a real tail.
+    let second = #"{"type":"event_msg","timestamp":1787000002000,"payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":150,"output_tokens":50,"total_tokens":200}}}}"#
+    if let fh = try? FileHandle(forWritingTo: URL(fileURLWithPath: file)) {
+        try? fh.seekToEnd()
+        try? fh.write(contentsOf: ("\n" + second).data(using: .utf8)!)
+        try? fh.close()
+    }
+    #expect(a.ingest(into: s) == 1)
+    let t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+    #expect(t.total == 300)
+    #expect(t.byModel["gpt-5.6-luna"] == 300) // NOT 100 + NULL 200
+}
