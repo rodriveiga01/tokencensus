@@ -54,11 +54,13 @@ $tok share-card card.png   # local PNG card, no cloud
 $tok tibo-pack pack.json   # overnight reset evidence bundle (manual post, no bots)
 ```
 
-Menu bar + dashboard:
+Menu bar + dashboard (installs to /Applications, replaces any legacy TokenLedgerApp.app):
 
 ```sh
-swift run TokenCensusApp
+./scripts/install-app.sh
 ```
+
+Then open TokenCensusApp from Applications or Spotlight. Or run without installing: `swift run TokenCensusApp`.
 
 Run tests:
 

@@ -9,6 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - Renamed TokenLedger → TokenCensus (package, modules, app, repo). The `tok` command is unchanged.
 - Local DB moved to `~/Library/Application Support/TokenCensus`; v1.0.0 databases auto-migrate on first launch. UserDefaults prefs and weekly cap carry over untouched.
+- `scripts/install-app.sh` builds a signed `TokenCensusApp.app` bundle into /Applications (menu-bar only, no Dock icon), replacing the legacy TokenLedgerApp.app.
 
 ## [1.0.0] - 2026-09-18
 
