@@ -419,13 +419,14 @@ public struct Dashboard: View {
                             fraction: s.total > 0 ? Double(v) / Double(s.total) : 0)
                 }
 
-                // Models
+                // Models (metric-aware like By tool: follows Total/In/Out)
                 Text("By model").font(.headline)
                 ForEach(s.byModel.sorted(by: { $0.value > $1.value }).prefix(10), id: \.key) { k, v in
+                    let amount = metric == .total ? v : (metric == .input ? (s.byModelInput[k] ?? 0) : (s.byModelOutput[k] ?? 0))
                     HStack {
                         Text(k).lineLimit(1).truncationMode(.tail)
                         Spacer()
-                        Text(Num.full(v)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
+                        Text(Num.full(amount)).font(.callout.monospacedDigit()).foregroundStyle(.secondary)
                     }
                     Divider()
                 }

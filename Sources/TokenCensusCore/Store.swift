@@ -131,18 +131,20 @@ public final class LedgerStore: Sendable {
         public var byToolInput: [String: Int]
         public var byToolOutput: [String: Int]
         public var byModel: [String: Int]
+        public var byModelInput: [String: Int]
+        public var byModelOutput: [String: Int]
     }
 
     public func sums(from: Date, to: Date) -> Sums {
-        guard let db = db() else { return Sums(total: 0, input: 0, output: 0, sessions: 0, byTool: [:], byToolInput: [:], byToolOutput: [:], byModel: [:]) }
+        guard let db = db() else { return Sums(total: 0, input: 0, output: 0, sessions: 0, byTool: [:], byToolInput: [:], byToolOutput: [:], byModel: [:], byModelInput: [:], byModelOutput: [:]) }
         defer { sqlite3_close(db) }
         var total = 0, input = 0, output = 0
         var byTool: [String: Int] = [:], byIn: [String: Int] = [:], byOut: [String: Int] = [:]
-        var byModel: [String: Int] = [:]
+        var byModel: [String: Int] = [:], byModelIn: [String: Int] = [:], byModelOut: [String: Int] = [:]
         var sessions = Set<String>()
         var st: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT total,input,output,tool,model,session_id FROM events WHERE ts>=? AND ts<?", -1, &st, nil) == SQLITE_OK else {
-            return Sums(total: 0, input: 0, output: 0, sessions: 0, byTool: [:], byToolInput: [:], byToolOutput: [:], byModel: [:])
+            return Sums(total: 0, input: 0, output: 0, sessions: 0, byTool: [:], byToolInput: [:], byToolOutput: [:], byModel: [:], byModelInput: [:], byModelOutput: [:])
         }
         defer { sqlite3_finalize(st) }
         sqlite3_bind_double(st, 1, from.timeIntervalSince1970); sqlite3_bind_double(st, 2, to.timeIntervalSince1970)
@@ -153,10 +155,13 @@ public final class LedgerStore: Sendable {
             total += t; input += i; output += o
             let tool = String(cString: sqlite3_column_text(st, 3))
             byTool[tool, default: 0] += t; byIn[tool, default: 0] += i; byOut[tool, default: 0] += o
-            if let mp = sqlite3_column_text(st, 4) { byModel[String(cString: mp), default: 0] += t }
+            if let mp = sqlite3_column_text(st, 4) {
+                let m = String(cString: mp)
+                byModel[m, default: 0] += t; byModelIn[m, default: 0] += i; byModelOut[m, default: 0] += o
+            }
             if let sp = sqlite3_column_text(st, 5) { sessions.insert(String(cString: sp)) }
         }
-        return Sums(total: total, input: input, output: output, sessions: sessions.count, byTool: byTool, byToolInput: byIn, byToolOutput: byOut, byModel: byModel)
+        return Sums(total: total, input: input, output: output, sessions: sessions.count, byTool: byTool, byToolInput: byIn, byToolOutput: byOut, byModel: byModel, byModelInput: byModelIn, byModelOutput: byModelOut)
     }
 
     /// Sum totals in [from, to). repoRoot nil = all repos.

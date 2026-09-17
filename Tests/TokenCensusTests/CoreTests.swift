@@ -167,6 +167,18 @@ private func run(_ bin: String, _ args: String...) -> Int32 {
     #expect(r.byTool["cline"] == 50)
 }
 
+@Test func sumsSplitsMetricsPerModel() {
+    // Guards the dashboard bug where By-model ignored the Total/In/Out
+    // switcher and always showed totals.
+    let s = LedgerStore(path: tmpDB())
+    let now = Date()
+    s.upsert(TokenEvent(id: "p1", timestamp: now, tool: .opencode, surface: "t", model: "m9", input: 80, output: 20, total: 100, sessionId: "s1", parserVersion: "t"))
+    s.upsert(TokenEvent(id: "p2", timestamp: now, tool: .codex, surface: "t", model: "m9", input: 30, output: 70, total: 100, sessionId: "s2", parserVersion: "t"))
+    let r = s.sums(from: now.addingTimeInterval(-60), to: now.addingTimeInterval(60))
+    #expect(r.byModel["m9"] == 200)
+    #expect(r.byModelInput["m9"] == 110 && r.byModelOutput["m9"] == 90)
+}
+
 @Test func clineHubCountedUntilTaskArrives() {
     let root = tmp("cline-hub")
     let tasks = root + "/tasks", sessions = root + "/sessions"

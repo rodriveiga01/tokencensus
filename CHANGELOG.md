@@ -17,6 +17,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - Same fix remembers per-file model/cwd across incremental tails (context lines arrive once, token lines append for days).
 - Removed 4 phantom Codex rows (471,395 tokens) left by the old ingest-time timestamp bug: same totals as real events, timestamps matching no log line, still stamped `codex.v1`. Year total corrected 155,317,892 → 154,846,497.
 
+### Fixed
+
+- Dashboard By-model ignored the Total/In/Out switcher and always showed totals. `LedgerStore.Sums` now carries per-model input/output splits and the view follows the metric.
+
 ## [1.0.0] - 2026-09-18
 
 First shippable cut.
