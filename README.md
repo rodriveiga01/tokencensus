@@ -82,13 +82,13 @@ swift test   # 13 tests, golden fixtures per tool + dedup + rollup checks
 | `tok tibo-pack out.json` | Reset evidence bundle (today/week/resets, JSON) |
 | `tok flex` ✨ | One-line receipt to stdout — copy, paste, flex |
 | `tok tibo` 🙏 | Tibo lore corner: resets caught + last sighting |
-| `tok zen` 🧘 | TokenLedger principles, `import this` style |
+| `tok zen` 🧘 | TokenCensus principles, `import this` style |
 
-Full spec: `docs/plans/2026-09-16-token-ledger-mac.md`.
+Full spec: `docs/plans/2026-09-16-tokencensus-mac.md`.
 
 ## 🙏 Tibo lore corner
 
-Codex exposes rate-limit windows alongside token counts. When a weekly/5h window jumps back to ~100% *before* its normal rollover, that's not a miracle — that's a **Tibo reset**. TokenLedger stamps it (`detectedAt`, `before`, `after`), keeps a lifetime `resets caught: N`, and never lets it move your Mon–Sun budget week. Two facts, side by side:
+Codex exposes rate-limit windows alongside token counts. When a weekly/5h window jumps back to ~100% *before* its normal rollover, that's not a miracle — that's a **Tibo reset**. TokenCensus stamps it (`detectedAt`, `before`, `after`), keeps a lifetime `resets caught: N`, and never lets it move your Mon–Sun budget week. Two facts, side by side:
 
 ```sh
 $ tok tibo

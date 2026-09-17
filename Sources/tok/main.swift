@@ -81,7 +81,7 @@ case "share-card":
     let resets = Tibo.load(from: store).count
     let out = args.dropFirst().first ?? "share-card.png"
     if renderCard(out: out, lines: [
-        "TOKEN LEDGER — today",
+        "TOKENCENSUS — today",
         "\(fmt(day.total)) tokens · \(day.sessions) sessions",
         "top model \(top)",
         "week \(fmt(w.used))" + (w.cap.map { " / \(fmt($0))" } ?? ""),

@@ -1,4 +1,6 @@
-# Token Ledger Mac — Validated Spec (V1)
+# TokenCensus Mac — Validated Spec (V1)
+
+*Note: written 2026-09-16 under the working title "Token Ledger"; renamed to TokenCensus — see CHANGELOG. Content unchanged.*
 
 Date: 2026-09-16
 Status: validated in brainstorm, awaiting file review
