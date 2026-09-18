@@ -12,7 +12,11 @@
 >
 > *(Fun fact: the typing animation above phones home more than this app ever will. The app makes zero network calls.)*
 
-![TokenCensus menu-bar card — all-time tokens, week vs cap, live freshness](docs/images/mini-card.png)
+<p align="center">
+  <img src="docs/images/mini-card.png" alt="TokenCensus menu-bar card showing all-time tokens, week burn versus cap, and data freshness" width="600" />
+  <br />
+  <sub>The menu-bar card: hero total · week burn vs your cap · live freshness. Counts stay on your Mac.</sub>
+</p>
 
 ## 📟 Receipt of the day
 
