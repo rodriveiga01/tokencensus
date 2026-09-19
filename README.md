@@ -40,6 +40,7 @@ No refunds. No loyalty points. Just counts.
 
 - 🧮 Counts Claude Code, Codex CLI, Hermes Agent, Opencode, Cline (VS Code + CLI + Desktop, deduped), T3 Code (gap-fill only — providers with no native logs; natively-covered sessions are never double-counted)
 - 📊 Menu-bar today counter + dashboard (day/week/month/year/all-time, per-tool + per-model)
+- 📺 Floating live counter: pop the ticking total out into a small always-on-top pill while agents run — it bows out on its own when they go quiet
 - 🛡️ Contextual Guard: `Here` (this repo today) + `Guard` (week burn vs your cap, Mon–Sun)
 - 🙏 Tibo Reset Detector: Codex window jumps back to ~100% early → event + evidence pack
 - ⌨️ `tok` CLI for ingest, today/week, caps, share card, evidence pack — plus easter eggs (`flex`, `tibo`, `zen`)

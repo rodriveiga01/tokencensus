@@ -147,13 +147,15 @@ public struct MiniCard: View {
     var store: LedgerStore
     var onUpdate: () -> Void
     var onOpenDashboard: () -> Void
+    var onFloat: () -> Void
     @AppStorage("range") private var rangeRaw = Range.day.rawValue
     @State private var refreshing = false
 
-    public init(store: LedgerStore, onUpdate: @escaping () -> Void = {}, onOpenDashboard: @escaping () -> Void = {}) {
+    public init(store: LedgerStore, onUpdate: @escaping () -> Void = {}, onOpenDashboard: @escaping () -> Void = {}, onFloat: @escaping () -> Void = {}) {
         self.store = store
         self.onUpdate = onUpdate
         self.onOpenDashboard = onOpenDashboard
+        self.onFloat = onFloat
     }
 
     var range: Range { Range(rawValue: rangeRaw) ?? .day }
@@ -229,9 +231,15 @@ public struct MiniCard: View {
                 }
                 Spacer()
                 // Modeless live: appears on its own while agents write logs.
+                // The pop-out button only exists while there's something to watch.
                 if Activity.current {
                     Text("● Live").font(.callout).bold().foregroundStyle(.red)
-                        .help("Counting live — agents are writing logs")
+                    Button(action: onFloat) {
+                        Image(systemName: "pip.picture.in.picture")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Pop out a floating live counter")
                 }
                 RefreshButton(refreshing: refreshing) { refresh() }
             }

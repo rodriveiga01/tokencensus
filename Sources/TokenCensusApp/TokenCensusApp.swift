@@ -101,8 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard a != inActiveMode else { return }
         inActiveMode = a
         Log.line(a ? "mode=active" : "mode=idle")
-        if a {
-            // Active agents deserve timely labels even with no visible
+        if a {            // Active agents deserve timely labels even with no visible
             // windows — App Nap would otherwise park our timers.
             // Released the moment activity goes quiet.
             napActivity = ProcessInfo.processInfo.beginActivity(
@@ -110,6 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 reason: "live token counting")
         } else {
             if let n = napActivity { ProcessInfo.processInfo.endActivity(n); napActivity = nil }
+            // The show's over: the floating counter bows out on its own.
+            dismissFloat(animated: true)
         }
         armTimer()
         refreshLabel()
@@ -172,7 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let card = MiniCard(store: store,
                             onUpdate: { [weak self] in self?.refreshLabel() },
-                            onOpenDashboard: { [weak self] in self?.showDashboard() })
+                            onOpenDashboard: { [weak self] in self?.showDashboard() },
+                            onFloat: { [weak self] in self?.toggleFloat() })
         popover.contentViewController = NSHostingController(rootView: card)
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -192,6 +194,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         dashWindow?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    // MARK: - Floating HUD (pop-out live counter)
+
+    private var floatPanel: NSPanel?
+
+    private func toggleFloat() {
+        if let p = floatPanel, p.isVisible {
+            dismissFloat(animated: true)
+            return
+        }
+        showFloat()
+    }
+
+    private func showFloat() {
+        if floatPanel == nil {
+            let vc = NSHostingController(rootView: FloatHUD(store: store))
+            let p = NSPanel(contentViewController: vc)
+            p.styleMask = [.borderless, .nonactivatingPanel]
+            p.isFloatingPanel = true
+            p.level = .floating
+            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            p.isOpaque = false
+            p.backgroundColor = .clear
+            p.hasShadow = true
+            p.isMovableByWindowBackground = true
+            floatPanel = p
+        }
+        guard let p = floatPanel else { return }
+        // Fresh position every show: top-right, below the menu bar.
+        // (Also resets the dismiss animation's drift.)
+        p.setContentSize(NSSize(width: 240, height: 92))
+        if let r = NSScreen.main?.visibleFrame {
+            p.setFrameOrigin(NSPoint(x: r.maxX - 240 - 16, y: r.maxY - 92 - 12))
+        }
+        p.alphaValue = 0
+        p.orderFront(nil)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.25
+            p.animator().alphaValue = 1
+        }
+    }
+
+    private func dismissFloat(animated: Bool) {
+        guard let p = floatPanel, p.isVisible else { return }
+        guard animated else { p.orderOut(nil); return }
+        // Quick bow-out: fade + drift up, then gone.
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.35
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            p.animator().alphaValue = 0
+            var f = p.frame
+            f.origin.y += 12
+            p.animator().setFrame(f, display: true)
+        }, completionHandler: {
+            p.orderOut(nil)
+        })
     }
 
     // MARK: - Label
