@@ -7,6 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- Floating live counter: while live, the menu-bar card offers a pop-out button that floats a thin always-on-top pill (red dot + today's tokens, odometer count-up, width hugging the number, draggable). When activity goes quiet it fades + drifts away on its own; clicking the button again dismisses it early.
 - Modeless live mode: the Live button is gone — the app watches tool-log file activity and switches to live cadence (2s tick, odometer, App Nap assertion) on its own while agents write logs, dropping back to idle after 45s quiet. Better battery than a forgotten toggle; `forceLive` defaults flag kept for debugging. Covered by an `Activity` window test (20 total).
 - T3 Code adapter (`t3.v1`): gap-fills token usage for T3-driven providers with no native logs (step-finish deltas from `~/.t3/userdata/logs/provider/events.*.log`, cwd/model context from `state.sqlite`, read-only). Sessions already counted via native logs (opencode/claude/codex — T3 step sums match native rows exactly) are skipped, never double-counted; opencode gap-fill rows promote away the moment the native row arrives. Covered by 3 new tests (gap-fill rule, snapshot trap, promotion).
 

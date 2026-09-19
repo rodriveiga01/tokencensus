@@ -101,8 +101,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard a != inActiveMode else { return }
         inActiveMode = a
         Log.line(a ? "mode=active" : "mode=idle")
-        if a {
-            // Active agents deserve timely labels even with no visible
+        if a {            // Active agents deserve timely labels even with no visible
             // windows — App Nap would otherwise park our timers.
             // Released the moment activity goes quiet.
             napActivity = ProcessInfo.processInfo.beginActivity(
@@ -110,6 +109,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 reason: "live token counting")
         } else {
             if let n = napActivity { ProcessInfo.processInfo.endActivity(n); napActivity = nil }
+            // The show's over: the floating counter bows out on its own.
+            dismissFloat(animated: true)
         }
         armTimer()
         refreshLabel()
@@ -172,7 +173,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let card = MiniCard(store: store,
                             onUpdate: { [weak self] in self?.refreshLabel() },
-                            onOpenDashboard: { [weak self] in self?.showDashboard() })
+                            onOpenDashboard: { [weak self] in self?.showDashboard() },
+                            onFloat: { [weak self] in self?.toggleFloat() })
         popover.contentViewController = NSHostingController(rootView: card)
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -194,6 +196,95 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
+    // MARK: - Floating HUD (pop-out live counter)
+
+    private var floatPanel: NSPanel?
+    /// Right edge the pill is anchored to (top-right placement).
+    private var floatRightEdge: CGFloat = 0
+    /// Digit-count bucket the pill is currently sized for. Width only ever
+    /// changes when the formatted number gains/loses a character (rare),
+    /// so geometry writes are near-never — and never driven by layout.
+    private var floatBucket: Int = -1
+
+    private func toggleFloat() {
+        Log.line("float-toggle visible=\(floatPanel?.isVisible ?? false)")
+        if let p = floatPanel, p.isVisible {
+            dismissFloat(animated: true)
+            return
+        }
+        showFloat()
+    }
+
+    private func showFloat() {
+        if floatPanel == nil {
+            let vc = NSHostingController(rootView: FloatHUD(store: store))
+            let p = NSPanel(contentViewController: vc)
+            p.styleMask = [.borderless, .nonactivatingPanel]
+            p.isFloatingPanel = true
+            p.level = .floating
+            p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            p.isOpaque = false
+            p.backgroundColor = .clear
+            p.hasShadow = true
+            p.isMovableByWindowBackground = true
+            // Faceless menu-bar app: never hide just because we aren't key.
+            p.hidesOnDeactivate = false
+            floatPanel = p
+        }
+        guard let p = floatPanel else { return }
+        // Rough initial placement top-right, below the menu bar — SwiftUI
+        // snaps the size to the pill right after; the observer holds the edge.
+        p.setContentSize(NSSize(width: 180, height: 56))
+        if let r = NSScreen.main?.visibleFrame {
+            p.setFrameOrigin(NSPoint(x: r.maxX - 180 - 16, y: r.maxY - 56 - 12))
+            floatRightEdge = r.maxX - 16
+            floatBucket = -1 // force-fit on next active tick
+        } else {
+            Log.line("float-no-main-screen")
+        }
+        Log.line("float-show frame=\(p.frame)")
+        p.alphaValue = 0
+        p.orderFront(nil)
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.25
+            p.animator().alphaValue = 1
+        }
+    }
+
+    /// Size the pill from the digit count. Called on the 2s active tick with
+    /// the already-fetched total — and writes geometry ONLY when the
+    /// formatted number gains/loses a character. Nothing here is driven by
+    /// layout, so no feedback loop is possible (cf. the Sep 2026 observer
+    /// crash). Right edge stays pinned to floatRightEdge.
+    private func fitFloatPanel(text: String) {
+        guard let p = floatPanel, p.isVisible else { return }
+        guard text.count != floatBucket else { return }
+        floatBucket = text.count
+        let font = NSFont.monospacedSystemFont(ofSize: 22, weight: .semibold)
+        let tw = (text as NSString).size(withAttributes: [.font: font]).width
+        let w = ceil(tw + 64) // dot + spacing + pill padding + slack
+        var f = p.frame
+        f.origin.x = floatRightEdge - w
+        f.size.width = w
+        p.setFrame(f, display: true)
+    }
+
+    private func dismissFloat(animated: Bool) {
+        guard let p = floatPanel, p.isVisible else { return }
+        guard animated else { p.orderOut(nil); return }
+        // Quick bow-out: fade + drift up, then gone.
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.35
+            ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            p.animator().alphaValue = 0
+            var f = p.frame
+            f.origin.y += 12
+            p.animator().setFrame(f, display: true)
+        }, completionHandler: {
+            p.orderOut(nil)
+        })
+    }
+
     // MARK: - Label
 
     // Active-mode odometer state. New totals ease toward the target instead
@@ -208,6 +299,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     fileprivate func refreshLabel() {
         let day = store.totals(from: Guard.startOfToday(), to: Date())
         if inActiveMode {
+            fitFloatPanel(text: Num.full(day.total))
             let target = day.total
             if displayedTotal == nil {
                 displayedTotal = target

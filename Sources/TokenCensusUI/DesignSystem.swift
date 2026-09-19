@@ -143,17 +143,37 @@ public struct RefreshButton: View {
 
 // MARK: - Mini card: glanceable, nothing more (depth lives in the dashboard)
 
+/// Hand-drawn pop-out glyph (two overlapping rectangles). Deliberately not
+/// an SF Symbol: symbol availability varies by OS and one missing glyph
+/// renders as an empty button with no fallback.
+private struct PopOutIcon: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 3.5)
+                .strokeBorder(lineWidth: 1.6)
+                .frame(width: 14, height: 11)
+            RoundedRectangle(cornerRadius: 2)
+                .fill()
+                .frame(width: 6, height: 4.5)
+                .offset(x: 3, y: 2.5)
+        }
+        .frame(width: 16, height: 13)
+    }
+}
+
 public struct MiniCard: View {
     var store: LedgerStore
     var onUpdate: () -> Void
     var onOpenDashboard: () -> Void
+    var onFloat: () -> Void
     @AppStorage("range") private var rangeRaw = Range.day.rawValue
     @State private var refreshing = false
 
-    public init(store: LedgerStore, onUpdate: @escaping () -> Void = {}, onOpenDashboard: @escaping () -> Void = {}) {
+    public init(store: LedgerStore, onUpdate: @escaping () -> Void = {}, onOpenDashboard: @escaping () -> Void = {}, onFloat: @escaping () -> Void = {}) {
         self.store = store
         self.onUpdate = onUpdate
         self.onOpenDashboard = onOpenDashboard
+        self.onFloat = onFloat
     }
 
     var range: Range { Range(rawValue: rangeRaw) ?? .day }
@@ -229,9 +249,16 @@ public struct MiniCard: View {
                 }
                 Spacer()
                 // Modeless live: appears on its own while agents write logs.
+                // The pop-out button only exists while there's something to watch.
                 if Activity.current {
                     Text("● Live").font(.callout).bold().foregroundStyle(.red)
-                        .help("Counting live — agents are writing logs")
+                    Button(action: onFloat) {
+                        PopOutIcon()
+                            .accessibilityLabel("Pop out floating counter")
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .help("Pop out a floating live counter")
                 }
                 RefreshButton(refreshing: refreshing) { refresh() }
             }
