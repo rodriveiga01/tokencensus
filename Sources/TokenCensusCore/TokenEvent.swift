@@ -1,12 +1,14 @@
 import Foundation
 
-/// Stable tool identifiers. V1: 5 tools only. Others explicitly out.
+/// Stable tool identifiers. 6 tools: the 5 native log readers + T3 Code,
+/// which gap-fills providers with no native logs (never double-counts).
 public enum ToolID: String, Codable, CaseIterable, Sendable {
     case claudeCode = "claude-code"
     case codex = "codex"
     case hermes = "hermes"
     case opencode = "opencode"
     case cline = "cline"
+    case t3code = "t3code"
 }
 
 /// One normalized usage fact. Facts-only: no judgments, no scores.

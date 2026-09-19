@@ -223,6 +223,81 @@ private func run(_ bin: String, _ args: String...) -> Int32 {
     #expect(t.total == 460)
 }
 
+// MARK: - T3 Code gap-filler (mirrors native logs — never double-counts)
+
+private func t3StateDB(root: String, rows: [(tid: String, cwd: String, model: String)]) -> String {
+    let db = root + "/state.sqlite"
+    _ = run("/usr/bin/sqlite3", db, "CREATE TABLE provider_session_runtime(thread_id TEXT PRIMARY KEY, runtime_payload_json TEXT);")
+    for r in rows {
+        _ = run("/usr/bin/sqlite3", db, "INSERT INTO provider_session_runtime VALUES('\(r.tid)', '{\"cwd\":\"\(r.cwd)\",\"model\":\"\(r.model)\"}');")
+    }
+    return db
+}
+
+@Test func t3CountsUncoveredSkipsCovered() {
+    let dir = tmp("t3logs")
+    // Thread A: uncovered provider (grok) — step deltas counted, zero-step
+    // skipped, turn.completed SNAPSHOT ignored (999999 must not leak in).
+    let aLines = [
+        #" [2026-09-16T14:01:08.525Z] CANON: {"eventId":"e1","provider":"grok","threadId":"tid-a","createdAt":"2026-09-16T14:01:08.521Z","turnId":"grok-turn-1","type":"turn.started","payload":{"model":"grok/grok-4"},"providerInstanceId":"grok"}"#,
+        #" [2026-09-16T14:01:17.313Z] NTIVE: {"observedAt":"2026-09-16T14:01:17.313Z","event":{"provider":"grok","threadId":"tid-a","providerThreadId":"ses_A","type":"message.part.updated","turnId":"grok-turn-1","payload":{"id":"evt_1","type":"message.part.updated","properties":{"sessionID":"ses_A","part":{"id":"prt_a1","sessionID":"ses_A","messageID":"msg_a1","type":"step-finish","reason":"tool-calls","tokens":{"input":1000,"output":200,"reasoning":10,"cache":{"read":50,"write":5}}},"time":1787000000000}}}}"#,
+        #" [2026-09-16T14:01:20.408Z] NTIVE: {"observedAt":"2026-09-16T14:01:20.408Z","event":{"provider":"grok","threadId":"tid-a","providerThreadId":"ses_A","type":"message.part.updated","turnId":"grok-turn-1","payload":{"id":"evt_2","type":"message.part.updated","properties":{"sessionID":"ses_A","part":{"id":"prt_a2","sessionID":"ses_A","messageID":"msg_a2","type":"step-finish","reason":"stop","tokens":{"input":300,"output":100,"reasoning":0,"cache":{"read":0,"write":0}}},"time":1787000001000}}}}"#,
+        #" [2026-09-16T14:01:21.000Z] NTIVE: {"observedAt":"2026-09-16T14:01:21.000Z","event":{"provider":"grok","threadId":"tid-a","providerThreadId":"ses_A","type":"message.part.updated","turnId":"grok-turn-1","payload":{"id":"evt_3","type":"message.part.updated","properties":{"sessionID":"ses_A","part":{"id":"prt_a0","sessionID":"ses_A","messageID":"msg_a0","type":"step-finish","reason":"stop","tokens":{"input":0,"output":0,"reasoning":0,"cache":{"read":0,"write":0}}},"time":1787000002000}}}}"#,
+        #" [2026-09-16T14:01:57.922Z] CANON: {"eventId":"e9","provider":"grok","threadId":"tid-a","createdAt":"2026-09-16T14:01:57.921Z","turnId":"grok-turn-1","type":"turn.completed","payload":{"state":"completed","tokenUsage":{"usageStatus":"complete","usageScope":"main_agent","inputTokens":999999,"cachedInputTokens":900000,"cacheCreationTokens":0,"outputTokens":88888,"reasoningTokens":0,"hasSubagents":false}},"providerInstanceId":"grok"}"#,
+    ].joined(separator: "\n")
+    try? aLines.write(toFile: dir + "/events.tid-a.log", atomically: true, encoding: .utf8)
+    // Thread B: opencode provider with the native row already stored — skipped.
+    let bLines = [
+        #" [2026-09-16T15:01:08.525Z] CANON: {"eventId":"f1","provider":"opencode","threadId":"tid-b","createdAt":"2026-09-16T15:01:08.521Z","turnId":"opencode-turn-1","type":"turn.started","payload":{"model":"opencode/m"},"providerInstanceId":"opencode"}"#,
+        #" [2026-09-16T15:01:17.313Z] NTIVE: {"observedAt":"2026-09-16T15:01:17.313Z","event":{"provider":"opencode","threadId":"tid-b","providerThreadId":"ses_B","type":"message.part.updated","turnId":"opencode-turn-1","payload":{"id":"evt_9","type":"message.part.updated","properties":{"sessionID":"ses_B","part":{"id":"prt_b1","sessionID":"ses_B","messageID":"msg_b1","type":"step-finish","reason":"stop","tokens":{"input":5000,"output":500,"reasoning":0,"cache":{"read":0,"write":0}}},"time":1787000000000}}}}"#,
+    ].joined(separator: "\n")
+    try? bLines.write(toFile: dir + "/events.tid-b.log", atomically: true, encoding: .utf8)
+    let s = LedgerStore(path: tmpDB())
+    let now = Date()
+    s.upsert(TokenEvent(id: "opencode:ses_B", timestamp: now, tool: .opencode, surface: "opencode.db", model: "m", input: 5000, output: 500, total: 5500, sessionId: "ses_B", parserVersion: "opencode.v1"))
+    let db = t3StateDB(root: tmp("t3db"), rows: [(tid: "tid-a", cwd: "/tmp/proj-a", model: "fallback-model")])
+    let a = T3Adapter(logDir: dir, stateDB: db)
+    #expect(a.status() == "ok")
+    #expect(a.ingest(into: s) == 2) // prt_a1 + prt_a2 only
+    let t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+    #expect(t.total == 7100) // 5500 native opencode + 1600 T3 gap-fill, NOT 12600
+    #expect(t.byTool["t3code"] == 1600)
+    #expect(t.byTool["opencode"] == 5500)
+    #expect(t.byModel["grok/grok-4"] == 1600) // turn.started wins over runtime fallback
+    #expect(a.ingest(into: s) == 0) // byte-offset resume: re-ingest adds nothing
+    let t2 = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+    #expect(t2.total == 7100)
+}
+
+@Test func t3PromotesWhenNativeArrives() {
+    let dir = tmp("t3promo")
+    let lines = [
+        #" [2026-09-16T15:01:08.525Z] CANON: {"eventId":"g1","provider":"opencode","threadId":"tid-c","createdAt":"2026-09-16T15:01:08.521Z","turnId":"opencode-turn-9","type":"turn.started","payload":{"model":"opencode/m"},"providerInstanceId":"opencode"}"#,
+        #" [2026-09-16T15:01:17.313Z] NTIVE: {"observedAt":"2026-09-16T15:01:17.313Z","event":{"provider":"opencode","threadId":"tid-c","providerThreadId":"ses_C","type":"message.part.updated","turnId":"opencode-turn-9","payload":{"id":"evt_8","type":"message.part.updated","properties":{"sessionID":"ses_C","part":{"id":"prt_c1","sessionID":"ses_C","messageID":"msg_c1","type":"step-finish","reason":"stop","tokens":{"input":700,"output":300,"reasoning":0,"cache":{"read":0,"write":0}}},"time":1787000000000}}}}"#,
+    ].joined(separator: "\n")
+    try? lines.write(toFile: dir + "/events.tid-c.log", atomically: true, encoding: .utf8)
+    let s = LedgerStore(path: tmpDB())
+    let a = T3Adapter(logDir: dir, stateDB: tmp("t3nodb") + "/missing.db")
+    #expect(a.ingest(into: s) == 1) // native row absent: gap-fill counts it
+    var t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+    #expect(t.total == 1000 && t.byTool["t3code"] == 1000)
+    // The native opencode row arrives later (delayed scan / restored DB):
+    // the provisional T3 row must go away, native row is the single truth.
+    s.upsert(TokenEvent(id: "opencode:ses_C", timestamp: Date(), tool: .opencode, surface: "opencode.db", input: 700, output: 300, total: 1000, sessionId: "ses_C", parserVersion: "opencode.v1"))
+    #expect(a.ingest(into: s) == 0) // no new lines; promotion still runs
+    t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+    #expect(t.total == 1000) // NOT 2000
+    #expect(t.byTool["t3code"] == nil)
+    #expect(t.byTool["opencode"] == 1000)
+}
+
+@Test func t3MissingIsNotAnError() {
+    let s = LedgerStore(path: tmpDB())
+    let a = T3Adapter(logDir: tmp("t3nope") + "/x", stateDB: tmp("t3nope") + "/y.db")
+    #expect(a.status() == "not-installed")
+    #expect(a.ingest(into: s) == 0)
+}
+
 // MARK: - Store dedup + windows
 
 @Test func totalsSum() {

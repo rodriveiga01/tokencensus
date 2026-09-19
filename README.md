@@ -5,7 +5,7 @@
 ![Swift 6.0](https://img.shields.io/badge/swift-6.0-orange)
 ![macOS 14+](https://img.shields.io/badge/macos-14%2B-blue)
 ![cloud: none — local only](https://img.shields.io/badge/cloud-none_%E2%80%94_local_only-green)
-![tools: 5](https://img.shields.io/badge/tools-5-purple)
+![tools: 6](https://img.shields.io/badge/tools-6-purple)
 [![CI](https://github.com/rodriveiga01/tokencensus/actions/workflows/ci.yml/badge.svg)](https://github.com/rodriveiga01/tokencensus/actions/workflows/ci.yml)
 
 > One hero number. No cost engine, no cloud, no account, no judgment about your 3am burn.
@@ -38,7 +38,7 @@ No refunds. No loyalty points. Just counts.
 
 ## Features
 
-- 🧮 Counts Claude Code, Codex CLI, Hermes Agent, Opencode, Cline (VS Code + CLI + Desktop, deduped)
+- 🧮 Counts Claude Code, Codex CLI, Hermes Agent, Opencode, Cline (VS Code + CLI + Desktop, deduped), T3 Code (gap-fill only — providers with no native logs; natively-covered sessions are never double-counted)
 - 📊 Menu-bar today counter + dashboard (day/week/month/year/all-time, per-tool + per-model)
 - 🛡️ Contextual Guard: `Here` (this repo today) + `Guard` (week burn vs your cap, Mon–Sun)
 - 🙏 Tibo Reset Detector: Codex window jumps back to ~100% early → event + evidence pack
@@ -53,7 +53,7 @@ Requires macOS 14+, Swift 6.0.
 swift build
 tok=$(pwd)/.build/debug/tok
 $tok ingest
-$tok today          # this repo today, across Claude Code + Codex + Hermes + Opencode + Cline
+$tok today          # this repo today, across Claude Code + Codex + Hermes + Opencode + Cline + T3 Code
 $tok week           # week burn vs your cap
 $tok set-cap 5000000
 $tok share-card card.png   # local PNG card, no cloud
@@ -71,7 +71,7 @@ Then open TokenCensusApp from Applications or Spotlight. Or run without installi
 Run tests:
 
 ```sh
-swift test   # 13 tests, golden fixtures per tool + dedup + rollup checks
+swift test   # 19 tests, golden fixtures per tool + dedup + rollup checks
 ```
 
 ## Usage
@@ -150,13 +150,14 @@ MIT — see [LICENSE](LICENSE).
 
 ## Privacy
 
-Read-only on tool logs (`~/.claude`, `~/.codex`, `~/.hermes`/`$HERMES_HOME`, `~/.local/share/opencode`, Cline homes). Only counts + timestamps + metadata (repo/branch/paths). Never prompts, responses, or file contents. Nothing leaves your machine.
+Read-only on tool logs (`~/.claude`, `~/.codex`, `~/.hermes`/`$HERMES_HOME`, `~/.local/share/opencode`, Cline homes, `~/.t3`). Only counts + timestamps + metadata (repo/branch/paths). Never prompts, responses, or file contents. Nothing leaves your machine.
 
 ## Honest limitations (the fine print)
 
 - Opencode day splits are by session last-activity (aggregates, not per-turn). Week/all-time exact.
 - Cline counts tasks with token blocks; metadata-only sessions skipped, never zero-filled.
 - Hermes shares one SQLite DB with its gateway — gaps badged, never silent zeros.
+- T3 Code drives the same CLIs it fronts: its step-finish deltas mirror native session rows exactly, so covered providers (opencode/claude/codex) are skipped and only providers with no native logs are gap-filled — counted once, never twice.
 - Codex uses per-turn deltas, never cumulative totals (no double-count).
 - Gaps (revoked permissions, locked DBs, pruned logs) are badged everywhere totals appear.
 - No backfill — forward from install. First week badged partial.

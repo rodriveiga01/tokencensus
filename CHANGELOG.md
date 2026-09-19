@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- T3 Code adapter (`t3.v1`): gap-fills token usage for T3-driven providers with no native logs (step-finish deltas from `~/.t3/userdata/logs/provider/events.*.log`, cwd/model context from `state.sqlite`, read-only). Sessions already counted via native logs (opencode/claude/codex — T3 step sums match native rows exactly) are skipped, never double-counted; opencode gap-fill rows promote away the moment the native row arrives. Covered by 3 new tests (gap-fill rule, snapshot trap, promotion).
+
 ### Changed
 
 - Renamed TokenLedger → TokenCensus (package, modules, app, repo). The `tok` command is unchanged.

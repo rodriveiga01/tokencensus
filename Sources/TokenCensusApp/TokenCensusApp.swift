@@ -144,7 +144,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard watcher == nil else { return }
         let roots = [ToolPaths.claudeProjects, ToolPaths.codexSessions,
                      (ToolPaths.opencodeDB as NSString).deletingLastPathComponent,
-                     (ToolPaths.hermesDB as NSString).deletingLastPathComponent]
+                     (ToolPaths.hermesDB as NSString).deletingLastPathComponent,
+                     ToolPaths.t3ProviderLogs]
             + ToolPaths.clineTaskDirs + ToolPaths.clineSessionDirs
         let existing = roots.filter { FileManager.default.fileExists(atPath: $0) }
         guard !existing.isEmpty else {

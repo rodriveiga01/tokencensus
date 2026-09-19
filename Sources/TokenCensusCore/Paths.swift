@@ -14,6 +14,11 @@ public enum ToolPaths {
 
     public static var opencodeDB: String { home + "/.local/share/opencode/opencode.db" }
 
+    /// T3 Code: provider event logs (per-thread step deltas) + state.sqlite
+    /// (thread cwd/model context). All access is read-only.
+    public static var t3ProviderLogs: String { home + "/.t3/userdata/logs/provider" }
+    public static var t3StateDB: String { home + "/.t3/userdata/state.sqlite" }
+
     /// Cline: three surfaces, one core. All optional; dedup across homes by task/session ID.
     public static var clineTaskDirs: [String] {
         // New shared layer (CLI + Desktop + VSCode per upstream storage.md)

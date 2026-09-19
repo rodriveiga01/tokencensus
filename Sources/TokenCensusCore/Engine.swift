@@ -1,9 +1,9 @@
 import Foundation
 
-/// Runs all 5 adapters. Failures isolated per tool; gaps recorded, never thrown.
+/// Runs all 6 adapters. Failures isolated per tool; gaps recorded, never thrown.
 public enum Engine {
     public static func adapters() -> [any Adapter] {
-        [ClaudeAdapter(), CodexAdapter(), HermesAdapter(), OpencodeAdapter(), ClineAdapter()]
+        [ClaudeAdapter(), CodexAdapter(), HermesAdapter(), OpencodeAdapter(), ClineAdapter(), T3Adapter()]
     }
 
     @discardableResult

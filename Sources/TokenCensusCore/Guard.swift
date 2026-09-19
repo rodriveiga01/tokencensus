@@ -1,7 +1,7 @@
 import Foundation
 
 /// Contextual Guard — facts-only, no judging, no recommendations.
-/// Here: this repo today across 5 tools. Guard: week burn vs user-set cap.
+/// Here: this repo today across all tools. Guard: week burn vs user-set cap.
 public enum Guard {
     public static var calendar: Calendar {
         var c = Calendar.current; c.timeZone = .current; return c

@@ -38,6 +38,7 @@ public enum Palette {
         case "hermes": return .purple
         case "opencode": return .blue
         case "cline": return .pink
+        case "t3code": return .teal
         default: return .gray
         }
     }
@@ -49,6 +50,7 @@ public enum Palette {
         case "hermes": return "Hermes"
         case "opencode": return "Opencode"
         case "cline": return "Cline"
+        case "t3code": return "T3 Code"
         default: return id
         }
     }
