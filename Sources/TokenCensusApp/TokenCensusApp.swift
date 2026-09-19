@@ -200,6 +200,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var floatPanel: NSPanel?
     private var floatSizeObs: NSKeyValueObservation?
+    /// Right edge the pill is anchored to (top-right placement).
+    private var floatRightEdge: CGFloat = 0
+    /// Reentrancy guard: origin corrections must never recurse into layout.
+    private var fittingFloat = false
 
     private func toggleFloat() {
         Log.line("float-toggle visible=\(floatPanel?.isVisible ?? false)")
@@ -227,29 +231,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             p.isMovableByWindowBackground = true
             // Faceless menu-bar app: never hide just because we aren't key.
             p.hidesOnDeactivate = false
-            floatSizeObs = vc.observe(\.preferredContentSize, options: [.new]) { [weak p] vc, _ in
-                Task { @MainActor [weak p] in
-                    guard let p, p.isVisible else { return }
-                    var f = p.frame
+            floatSizeObs = vc.observe(\.preferredContentSize, options: [.new]) { [weak self, weak p] vc, _ in
+                Task { @MainActor [weak self, weak p] in
+                    guard let self, let p, p.isVisible, !self.fittingFloat else { return }
                     let want = vc.preferredContentSize
                     guard want.width > 0, want.height > 0 else { return }
-                    // Anchor right + top: the pill grows leftward as digits add.
-                    f.origin.x += f.width - want.width
-                    f.origin.y += f.height - want.height
-                    f.size = want
-                    if abs(f.width - p.frame.width) > 0.5 || abs(f.height - p.frame.height) > 0.5 {
-                        p.setFrame(f, display: true)
-                    }
+                    // SwiftUI already resized the window itself
+                    // (NSHostingView.updateAnimatedWindowSize). We ONLY slide
+                    // it so the captured right edge stays put — never touch
+                    // the size here, or layout refires forever (stack overflow,
+                    // Sep 2026). Origin writes with an unchanged frame are
+                    // AppKit no-ops, so this settles instead of looping.
+                    self.fittingFloat = true
+                    var f = p.frame
+                    f.origin.x = self.floatRightEdge - f.width
+                    p.setFrameOrigin(f.origin)
+                    self.fittingFloat = false
                 }
             }
             floatPanel = p
         }
         guard let p = floatPanel else { return }
-        // Rough initial placement top-right, below the menu bar — the size
-        // observer snaps it to the pill's true size right after.
+        // Rough initial placement top-right, below the menu bar — SwiftUI
+        // snaps the size to the pill right after; the observer holds the edge.
         p.setContentSize(NSSize(width: 180, height: 56))
         if let r = NSScreen.main?.visibleFrame {
             p.setFrameOrigin(NSPoint(x: r.maxX - 180 - 16, y: r.maxY - 56 - 12))
+            floatRightEdge = r.maxX - 16
         } else {
             Log.line("float-no-main-screen")
         }
