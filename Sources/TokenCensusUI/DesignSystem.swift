@@ -147,16 +147,13 @@ public struct MiniCard: View {
     var store: LedgerStore
     var onUpdate: () -> Void
     var onOpenDashboard: () -> Void
-    var onToggleLive: (Bool) -> Void
     @AppStorage("range") private var rangeRaw = Range.day.rawValue
-    @AppStorage("liveMode") private var live = false
     @State private var refreshing = false
 
-    public init(store: LedgerStore, onUpdate: @escaping () -> Void = {}, onOpenDashboard: @escaping () -> Void = {}, onToggleLive: @escaping (Bool) -> Void = { _ in }) {
+    public init(store: LedgerStore, onUpdate: @escaping () -> Void = {}, onOpenDashboard: @escaping () -> Void = {}) {
         self.store = store
         self.onUpdate = onUpdate
         self.onOpenDashboard = onOpenDashboard
-        self.onToggleLive = onToggleLive
     }
 
     var range: Range { Range(rawValue: rangeRaw) ?? .day }
@@ -231,16 +228,11 @@ public struct MiniCard: View {
                     AgoTicker(store: store)
                 }
                 Spacer()
-                Button {
-                    live.toggle()
-                    onToggleLive(live)
-                } label: {
-                    Image(systemName: live ? "record.circle.fill" : "record.circle")
-                        .foregroundStyle(live ? .red : .secondary)
+                // Modeless live: appears on its own while agents write logs.
+                if Activity.current {
+                    Text("● Live").font(.callout).bold().foregroundStyle(.red)
+                        .help("Counting live — agents are writing logs")
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .help(live ? "Stop live mode" : "Start live mode")
                 RefreshButton(refreshing: refreshing) { refresh() }
             }
 
@@ -293,17 +285,14 @@ public struct ToolRow: View {
 
 public struct Dashboard: View {
     var store: LedgerStore
-    var onToggleLive: (Bool) -> Void
     @AppStorage("range") private var rangeRaw = Range.day.rawValue
     @AppStorage("metric") private var metricRaw = Metric.total.rawValue
-    @AppStorage("liveMode") private var live = false
     @State private var tick = 0
     @State private var capM: Double = 5
     @State private var refreshing = false
 
-    public init(store: LedgerStore, onToggleLive: @escaping (Bool) -> Void = { _ in }) {
+    public init(store: LedgerStore) {
         self.store = store
-        self.onToggleLive = onToggleLive
     }
 
     var range: Range { Range(rawValue: rangeRaw) ?? .day }
@@ -340,17 +329,11 @@ public struct Dashboard: View {
                     }
                     .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 220)
                     Spacer()
-                    Button {
-                        live.toggle()
-                        onToggleLive(live)
-                    } label: {
-                        Label(live ? "Live on" : "Live",
-                              systemImage: live ? "record.circle.fill" : "record.circle")
+                    // Modeless live: on while agents write logs, off when quiet.
+                    if Activity.current {
+                        Text("● LIVE").font(.callout).bold().foregroundStyle(.red)
+                            .help("Agents are writing logs — counting live")
                     }
-                    .buttonStyle(.bordered)
-                    .controlSize(.small)
-                    .tint(live ? .red : nil)
-                    .help(live ? "Stop live mode" : "Start live mode")
                     if refreshing {
                         Text("Updating…").font(.callout).foregroundStyle(.secondary)
                     } else {
@@ -366,7 +349,7 @@ public struct Dashboard: View {
                             .font(.system(size: 52, weight: .bold, design: .rounded).monospacedDigit())
                         Text("tokens")
                             .font(.title3).foregroundStyle(.secondary)
-                        if live {
+                        if Activity.current {
                             Text("● LIVE")
                                 .font(.callout).bold().foregroundStyle(.red)
                         }

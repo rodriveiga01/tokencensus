@@ -16,7 +16,7 @@ struct TokenCensusApp: App {
     }
 }
 
-/// File log for the live pipeline (watcher events, ingests, toggles).
+/// File log for the live pipeline (watcher events, ingests, mode transitions).
 /// Headless-debuggable: `tail -f ~/Library/Logs/TokenCensus/app.log`.
 enum Log {
     private static let lock = NSLock()
@@ -49,6 +49,9 @@ enum Log {
 /// only Sendable state, so the block can run anywhere safely.
 func makeWatcherHandler(store: LedgerStore) -> @Sendable ([String]?) -> Void {
     return { _ in
+        // Any write under the watched log dirs means an agent is working.
+        // Optimistic stamp — the ingest below confirms with real tokens.
+        Activity.note()
         Log.line("fsevent-ping")
         Task {
             let ran = await IngestCoordinator.shared.ingest(into: store)
@@ -67,13 +70,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var timer: Timer?
     private var dashWindow: NSWindow?
     private var watcher: UnsafeMutableRawPointer?
-    private var liveTicks = 0
+    private var activeTicks = 0
     private var napActivity: NSObjectProtocol?
 
-    var live: Bool {
-        get { UserDefaults.standard.bool(forKey: "liveMode") }
-        set { UserDefaults.standard.set(newValue, forKey: "liveMode") }
-    }
+    /// Modeless live mode: active while tool logs are being written, idle
+    /// otherwise. No button, no flag to forget — file activity is the switch.
+    private var inActiveMode = false
 
     func applicationDidFinishLaunching(_ note: Notification) {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -81,8 +83,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem.button?.target = self
         popover.behavior = .transient
         popover.animates = true
+        startWatching() // always on: FSEvents is kernel-side, ~free until logs move
         armTimer()
-        if live { startWatching() }
         refreshLabel()
     }
 
@@ -92,20 +94,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 
-    func setLive(_ on: Bool) {
-        live = on
-        Log.line("live=\(on)")
-        if on {
-            // Live mode must tick every 2s even with no visible windows —
-            // App Nap would otherwise park our timers and event delivery.
-            // Scoped strictly to live sessions, ended the moment it stops.
+    /// Reconcile timer cadence + App Nap assertion with detected activity.
+    /// Called on every tick; re-arms the timer only on transitions.
+    private func reconcileMode() {
+        let a = Activity.current
+        guard a != inActiveMode else { return }
+        inActiveMode = a
+        Log.line(a ? "mode=active" : "mode=idle")
+        if a {
+            // Active agents deserve timely labels even with no visible
+            // windows — App Nap would otherwise park our timers.
+            // Released the moment activity goes quiet.
             napActivity = ProcessInfo.processInfo.beginActivity(
                 options: [.userInitiated, .latencyCritical],
                 reason: "live token counting")
-            startWatching()
         } else {
-            stopWatching()
-            if let a = napActivity { ProcessInfo.processInfo.endActivity(a); napActivity = nil }
+            if let n = napActivity { ProcessInfo.processInfo.endActivity(n); napActivity = nil }
         }
         armTimer()
         refreshLabel()
@@ -113,19 +117,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func armTimer() {
         timer?.invalidate()
-        liveTicks = 0
-        Log.line("timer=\(live ? 2 : 10)s")
-        timer = Timer.scheduledTimer(withTimeInterval: live ? 2.0 : 10.0, repeats: true) { [weak self] _ in
+        activeTicks = 0
+        Log.line("timer=\(inActiveMode ? 2 : 10)s")
+        timer = Timer.scheduledTimer(withTimeInterval: inActiveMode ? 2.0 : 10.0, repeats: true) { [weak self] _ in
             // Timer blocks are @Sendable on newer SDKs: hop to the main actor first.
             Task { @MainActor [weak self] in
                 guard let self else { return }
+                self.reconcileMode()
                 self.refreshLabel()
-                // Safety net while live: periodic background ingest even if
-                // FSEvents drops anything. Near-free when idle (signature skip
-                // + byte-offset tails), so this is the robustness floor.
-                if self.live {
-                    self.liveTicks += 1
-                    if self.liveTicks % 8 == 0 {
+                // Safety net while active: periodic background ingest even if
+                // FSEvents drops anything. Near-free when quiet (signature
+                // skip + byte-offset tails), so this is the robustness floor.
+                // Idle mode relies on events alone — no periodic work at all.
+                if self.inActiveMode {
+                    self.activeTicks += 1
+                    if self.activeTicks % 8 == 0 {
                         Log.line("safety-due")
                         Task {
                             let r = await IngestCoordinator.shared.ingest(into: self.store)
@@ -138,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    // MARK: - File watcher (live mode only — zero cost when off)
+    // MARK: - File watcher (always on — kernel-side, ~free until logs move)
 
     private func startWatching() {
         guard watcher == nil else { return }
@@ -157,12 +163,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if watcher == nil { Log.line("watcher=create-failed") }
     }
 
-    private func stopWatching() {
-        guard let w = watcher else { return }
-        TLWatcherStop(w)
-        watcher = nil
-    }
-
     // MARK: - Popover + dashboard
 
     @objc private func toggle(_ sender: Any?) {
@@ -172,8 +172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         let card = MiniCard(store: store,
                             onUpdate: { [weak self] in self?.refreshLabel() },
-                            onOpenDashboard: { [weak self] in self?.showDashboard() },
-                            onToggleLive: { [weak self] on in self?.setLive(on) })
+                            onOpenDashboard: { [weak self] in self?.showDashboard() })
         popover.contentViewController = NSHostingController(rootView: card)
         guard let button = statusItem.button else { return }
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
@@ -182,7 +181,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showDashboard() {
         popover.performClose(nil)
         if dashWindow == nil {
-            let vc = NSHostingController(rootView: Dashboard(store: store, onToggleLive: { [weak self] on in self?.setLive(on) }))
+            let vc = NSHostingController(rootView: Dashboard(store: store))
             let w = NSWindow(contentViewController: vc)
             w.title = "TokenCensus"
             w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
@@ -197,7 +196,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Label
 
-    // Live-mode odometer state. New totals ease toward the target instead
+    // Active-mode odometer state. New totals ease toward the target instead
     // of jumping; a fresh target mid-flight retargets from the currently
     // displayed value, so rapid updates stay smooth, never jumpy.
     private var displayedTotal: Int?
@@ -208,7 +207,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     fileprivate func refreshLabel() {
         let day = store.totals(from: Guard.startOfToday(), to: Date())
-        if live {
+        if inActiveMode {
             let target = day.total
             if displayedTotal == nil {
                 displayedTotal = target

@@ -298,6 +298,15 @@ private func t3StateDB(root: String, rows: [(tid: String, cwd: String, model: St
     #expect(a.ingest(into: s) == 0)
 }
 
+// MARK: - Activity (modeless live mode)
+
+@Test func activityWindow() {
+    #expect(Activity.isActive(lastActivity: 1000, now: 1020) == true)
+    #expect(Activity.isActive(lastActivity: 1000, now: 1000 + Activity.window - 1) == true)
+    #expect(Activity.isActive(lastActivity: 1000, now: 1000 + Activity.window + 1) == false)
+    #expect(Activity.isActive(lastActivity: 0, now: 1020) == false) // never stamped: idle
+}
+
 // MARK: - Store dedup + windows
 
 @Test func totalsSum() {

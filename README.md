@@ -71,7 +71,7 @@ Then open TokenCensusApp from Applications or Spotlight. Or run without installi
 Run tests:
 
 ```sh
-swift test   # 19 tests, golden fixtures per tool + dedup + rollup checks
+swift test   # 20 tests, golden fixtures per tool + dedup + rollup checks
 ```
 
 ## Usage

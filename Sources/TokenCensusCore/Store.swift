@@ -56,7 +56,7 @@ public final class LedgerStore: Sendable {
 
     /// Batched upsert over ONE connection + transaction. Per-row connections
     /// cost ~3ms each (open + WAL setup + close) — 460 session rows burned
-    /// 1.5s+ that way. This is the live-mode path: same rows, ~50ms.
+    /// 1.5s+ that way. This is the active-mode path: same rows, ~50ms.
     @discardableResult
     public func upsertMany(_ events: [TokenEvent]) -> Int {
         guard !events.isEmpty else { return 0 }
