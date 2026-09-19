@@ -199,6 +199,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Floating HUD (pop-out live counter)
 
     private var floatPanel: NSPanel?
+    private var floatSizeObs: NSKeyValueObservation?
 
     private func toggleFloat() {
         Log.line("float-toggle visible=\(floatPanel?.isVisible ?? false)")
@@ -212,6 +213,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func showFloat() {
         if floatPanel == nil {
             let vc = NSHostingController(rootView: FloatHUD(store: store))
+            // Publish the pill's size as it changes (the number grows) so
+            // the panel can hug it. Observed below, right-edge anchored.
+            vc.sizingOptions = [.preferredContentSize]
             let p = NSPanel(contentViewController: vc)
             p.styleMask = [.borderless, .nonactivatingPanel]
             p.isFloatingPanel = true
@@ -223,14 +227,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             p.isMovableByWindowBackground = true
             // Faceless menu-bar app: never hide just because we aren't key.
             p.hidesOnDeactivate = false
+            floatSizeObs = vc.observe(\.preferredContentSize, options: [.new]) { [weak p] vc, _ in
+                Task { @MainActor [weak p] in
+                    guard let p, p.isVisible else { return }
+                    var f = p.frame
+                    let want = vc.preferredContentSize
+                    guard want.width > 0, want.height > 0 else { return }
+                    // Anchor right + top: the pill grows leftward as digits add.
+                    f.origin.x += f.width - want.width
+                    f.origin.y += f.height - want.height
+                    f.size = want
+                    if abs(f.width - p.frame.width) > 0.5 || abs(f.height - p.frame.height) > 0.5 {
+                        p.setFrame(f, display: true)
+                    }
+                }
+            }
             floatPanel = p
         }
         guard let p = floatPanel else { return }
-        // Fresh position every show: top-right, below the menu bar.
-        // (Also resets the dismiss animation's drift.)
-        p.setContentSize(NSSize(width: 240, height: 92))
+        // Rough initial placement top-right, below the menu bar — the size
+        // observer snaps it to the pill's true size right after.
+        p.setContentSize(NSSize(width: 180, height: 56))
         if let r = NSScreen.main?.visibleFrame {
-            p.setFrameOrigin(NSPoint(x: r.maxX - 240 - 16, y: r.maxY - 92 - 12))
+            p.setFrameOrigin(NSPoint(x: r.maxX - 180 - 16, y: r.maxY - 56 - 12))
         } else {
             Log.line("float-no-main-screen")
         }

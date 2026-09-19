@@ -3,9 +3,9 @@ import TokenCensusCore
 
 // MARK: - Floating HUD: the live counter, popped out of the menu bar
 
-/// Tiny always-on-top pill showing today's tokens ticking live.
-/// Self-updating on a 1s timeline while visible; the panel owns its
-/// lifetime (shows on demand, auto-vanishes with a fade when idle).
+/// One thin pill: red live dot + today's tokens, nothing else.
+/// `.fixedSize()` lets the hosting panel track the number's width live —
+/// the pill grows as the count does.
 public struct FloatHUD: View {
     var store: LedgerStore
 
@@ -16,19 +16,16 @@ public struct FloatHUD: View {
     public var body: some View {
         TimelineView(.periodic(from: .now, by: 1.0)) { _ in
             let day = store.totals(from: Guard.startOfToday(), to: Date())
-            VStack(spacing: 2) {
-                HStack(spacing: 6) {
-                    Circle().fill(.red).frame(width: 7, height: 7)
-                    Text(Num.full(day.total))
-                        .font(.system(size: 24, weight: .bold, design: .rounded).monospacedDigit())
-                }
-                Text("tokens today · \(day.sessions) sessions")
-                    .font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 8) {
+                Circle().fill(.red).frame(width: 8, height: 8)
+                Text(Num.full(day.total))
+                    .font(.system(size: 22, weight: .semibold, design: .rounded).monospacedDigit())
             }
             .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16))
+            .padding(.vertical, 8)
+            .background(.ultraThinMaterial, in: Capsule())
+            .fixedSize()
         }
-        .padding(8)
+        .padding(4)
     }
 }
