@@ -235,7 +235,7 @@ public struct MiniCard: View {
                 if Activity.current {
                     Text("● Live").font(.callout).bold().foregroundStyle(.red)
                     Button(action: onFloat) {
-                        Image(systemName: "pip.picture.in.picture")
+                        Label("Float", systemImage: "pip.picture.in.picture")
                     }
                     .buttonStyle(.bordered)
                     .controlSize(.small)

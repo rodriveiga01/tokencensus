@@ -201,6 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var floatPanel: NSPanel?
 
     private func toggleFloat() {
+        Log.line("float-toggle visible=\(floatPanel?.isVisible ?? false)")
         if let p = floatPanel, p.isVisible {
             dismissFloat(animated: true)
             return
@@ -220,6 +221,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             p.backgroundColor = .clear
             p.hasShadow = true
             p.isMovableByWindowBackground = true
+            // Faceless menu-bar app: never hide just because we aren't key.
+            p.hidesOnDeactivate = false
             floatPanel = p
         }
         guard let p = floatPanel else { return }
@@ -228,7 +231,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         p.setContentSize(NSSize(width: 240, height: 92))
         if let r = NSScreen.main?.visibleFrame {
             p.setFrameOrigin(NSPoint(x: r.maxX - 240 - 16, y: r.maxY - 92 - 12))
+        } else {
+            Log.line("float-no-main-screen")
         }
+        Log.line("float-show frame=\(p.frame)")
         p.alphaValue = 0
         p.orderFront(nil)
         NSAnimationContext.runAnimationGroup { ctx in
