@@ -1,6 +1,6 @@
 #!/bin/sh
 # Installs the TokenCensus menu-bar app into /Applications.
-# Replaces any previous TokenCensusApp.app and the legacy TokenLedgerApp.app.
+# Replaces any previous TokenCensusApp.app after keeping a dated backup.
 # Usage: ./scripts/install-app.sh   (run from the repo root)
 set -eu
 
@@ -54,11 +54,24 @@ PLIST
 echo "==> ad-hoc signing"
 codesign --force -s - "${STAGE}" 2>/dev/null || true
 
-echo "==> removing legacy bundles"
-rm -rf "/Applications/${APP_NAME}.app" "/Applications/TokenLedgerApp.app"
+echo "==> preserving any existing installation before replacement"
+if [ -e "/Applications/${APP_NAME}.app" ]; then
+  BACKUP="/Applications/${APP_NAME}.app.backup-$(date +%Y%m%d-%H%M%S)"
+  echo "==> preserving existing app at ${BACKUP}"
+  mv "/Applications/${APP_NAME}.app" "${BACKUP}"
+fi
 
 echo "==> installing to /Applications"
-cp -R "${STAGE}" "/Applications/${APP_NAME}.app"
+if ! cp -R "${STAGE}" "/Applications/${APP_NAME}.app"; then
+  echo "Installation failed; restoring the previous app."
+  if [ -n "${BACKUP:-}" ] && [ -e "${BACKUP}" ]; then
+    rm -rf "/Applications/${APP_NAME}.app"
+    mv "${BACKUP}" "/Applications/${APP_NAME}.app"
+  else
+    rm -rf "/Applications/${APP_NAME}.app"
+  fi
+  exit 1
+fi
 
 echo "installed: /Applications/${APP_NAME}.app"
 ls -d "/Applications/${APP_NAME}.app"

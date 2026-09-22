@@ -61,7 +61,7 @@ $tok share-card card.png   # local PNG card, no cloud
 $tok tibo-pack pack.json   # overnight reset evidence bundle (manual post, no bots)
 ```
 
-Menu bar + dashboard (installs to /Applications, replaces any legacy TokenLedgerApp.app):
+Menu bar + dashboard (installs to /Applications, keeps a dated backup of any existing TokenCensusApp.app):
 
 ```sh
 ./scripts/install-app.sh

@@ -13,7 +13,14 @@ public final class LedgerStore: Sendable {
            FileManager.default.fileExists(atPath: legacy + "/ledger.db") {
             try? FileManager.default.moveItem(atPath: legacy, toPath: dir)
         }
-        try? FileManager.default.createDirectory(atPath: dir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(
+            atPath: dir,
+            withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        // This database includes local repo paths and model/session metadata.
+        // Keep the containing directory private even if it already existed.
+        try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: dir)
         return dir + "/ledger.db"
     }
 
