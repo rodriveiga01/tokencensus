@@ -38,7 +38,7 @@ No refunds. No loyalty points. Just counts.
 
 ## Features
 
-- 🧮 Counts Claude Code, Codex CLI, Hermes Agent, Opencode, Cline (VS Code + CLI + Desktop, deduped), T3 Code (gap-fill only — providers with no native logs; natively-covered sessions are never double-counted)
+- Counts Claude Code, Codex CLI, Hermes Agent, Opencode (1.x `session` + 2.x `session_v2` union), Cline (VS Code + CLI + Desktop, deduped), T3 Code Orchestrator V1 (gap-fill only — providers with no native logs; natively-covered sessions are never double-counted) + V2 (`statev2.sqlite` turn deltas, subagent/`delegate_task` child threads counted once each; Pi/Cursor/ACP providers gap-fill the same way)
 - 📊 Menu-bar today counter + dashboard (day/week/month/year/all-time, per-tool + per-model)
 - 📺 Floating live counter: pop the ticking total out into a small always-on-top pill while agents run — it bows out on its own when they go quiet
 - 🛡️ Contextual Guard: `Here` (this repo today) + `Guard` (week burn vs your cap, Mon–Sun)
@@ -72,7 +72,7 @@ Then open TokenCensusApp from Applications or Spotlight. Or run without installi
 Run tests:
 
 ```sh
-swift test   # 20 tests, golden fixtures per tool + dedup + rollup checks
+swift test   # 23 tests, golden fixtures per tool + dedup + rollup checks
 ```
 
 ## Usage
@@ -158,7 +158,8 @@ Read-only on tool logs (`~/.claude`, `~/.codex`, `~/.hermes`/`$HERMES_HOME`, `~/
 - Opencode day splits are by session last-activity (aggregates, not per-turn). Week/all-time exact.
 - Cline counts tasks with token blocks; metadata-only sessions skipped, never zero-filled.
 - Hermes shares one SQLite DB with its gateway — gaps badged, never silent zeros.
-- T3 Code drives the same CLIs it fronts: its step-finish deltas mirror native session rows exactly, so covered providers (opencode/claude/codex) are skipped and only providers with no native logs are gap-filled — counted once, never twice.
+- T3 Code drives the same CLIs it fronts: V1 step-finish deltas mirror native session rows exactly, and V2 `turnTokenUsage` deltas reconstruct `session_v2` aggregates exactly (fresh `input−cached`, non-reasoning output), so covered providers (opencode/claude/codex) are skipped and only providers with no native logs are gap-filled — counted once, never twice. V2 `tokenUsage` context snapshots are never summed.
+- Opencode 2 writes new sessions to `session_v2` (legacy `session` frozen at conversion) — both tables are scanned, the union is truth.
 - Codex uses per-turn deltas, never cumulative totals (no double-count).
 - Gaps (revoked permissions, locked DBs, pruned logs) are badged everywhere totals appear.
 - No backfill — forward from install. First week badged partial.

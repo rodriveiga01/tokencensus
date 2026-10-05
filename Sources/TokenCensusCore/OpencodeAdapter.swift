@@ -2,8 +2,11 @@ import Foundation
 import SQLite3
 
 /// Opencode: ~/.local/share/opencode/opencode.db, read-only.
-/// Session table already carries full C aggregates + directory + model.
-/// Message/part JSON blobs are never parsed for tokens (session row is truth).
+/// Session tables already carry full C aggregates + directory + model.
+/// Message/part JSON blobs are never parsed for tokens (session rows are truth).
+/// OpenCode 2 writes new sessions to `session_v2` (same columns); the legacy
+/// `session` table freezes at the 1.x→2.x conversion. Both are scanned — the
+/// union is the truth, never either table alone.
 public struct OpencodeAdapter: Adapter {
     public let tool: ToolID = .opencode
     public let version = "opencode.v1"
@@ -19,7 +22,9 @@ public struct OpencodeAdapter: Adapter {
         guard FileManager.default.fileExists(atPath: path) else { return 0 }
         // Idle fast path: unchanged files (byte-identical signature) mean no
         // session could have changed — skip the multi-GB scan entirely.
-        let sigKey = "sig.opencode.v1"
+        // v2: the union now covers session_v2 (OpenCode 2); the key bump
+        // forces one full rescan after update, then idle-skips resume.
+        let sigKey = "sig.opencode.v2"
         let sig = FileSig.of([path, path + "-wal", path + "-shm"])
         if store.pref(sigKey) == sig { return 0 }
         var db: OpaquePointer?
@@ -29,24 +34,39 @@ public struct OpencodeAdapter: Adapter {
         }
         defer { sqlite3_close(db) }
         sqlite3_busy_timeout(db, 1000)
-        let sql = "SELECT id, directory, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, tokens_reasoning, time_created, time_updated FROM session"
-        var st: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK, let st else {
+        var batch: [TokenEvent] = []
+        batch.reserveCapacity(512)
+        // Legacy table first; session_v2 second so OpenCode 2 (current)
+        // wins the rare id present in both. A missing table is not an
+        // error — OpenCode 1 DBs predate session_v2 entirely.
+        var found = false
+        found = scanTable(db, name: "session", into: &batch) || found
+        found = scanTable(db, name: "session_v2", into: &batch) || found
+        if !found {
             store.recordGap(tool: .opencode, reason: "schema")
             return 0
         }
+        let added = store.upsertMany(batch)
+        store.setPref(sigKey, sig)
+        return added
+    }
+
+    /// Scans one session table into the batch. Returns false when the table
+    /// does not exist (never an error on its own).
+    private func scanTable(_ db: OpaquePointer, name: String, into batch: inout [TokenEvent]) -> Bool {
+        let sql = "SELECT id, directory, model, tokens_input, tokens_output, tokens_cache_read, tokens_cache_write, tokens_reasoning, time_created, time_updated FROM \(name)"
+        var st: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK, let st else { return false }
         defer { sqlite3_finalize(st) }
         func text(_ i: Int32) -> String? {
             guard let p = sqlite3_column_text(st, i) else { return nil }
             let s = String(cString: p)
             return s.isEmpty ? nil : s
         }
-        var batch: [TokenEvent] = []
-        batch.reserveCapacity(512)
         while sqlite3_step(st) == SQLITE_ROW {
             guard let sid = text(0) else { continue }
             let dir = text(1)
-            let model = cleanModel(text(2))
+            let model = OpencodeAdapter.cleanModel(text(2))
             let ti = Int(sqlite3_column_int64(st, 3))
             let to = Int(sqlite3_column_int64(st, 4))
             let cr = Int(sqlite3_column_int64(st, 5))
@@ -65,15 +85,13 @@ public struct OpencodeAdapter: Adapter {
                 cwd: dir, repoRoot: RepoResolve.root(for: dir), branch: nil, parserVersion: version)
             batch.append(e)
         }
-        let added = store.upsertMany(batch)
-        store.setPref(sigKey, sig)
-        return added
+        return true
     }
 
     /// Model column sometimes holds a JSON blob like
     /// {"id":"muse-spark-...","providerID":"opencode","variant":"xhigh"}.
     /// Store the short id so HUD/group-by stays readable.
-    private func cleanModel(_ raw: String?) -> String? {
+    static func cleanModel(_ raw: String?) -> String? {
         guard let raw, !raw.isEmpty else { return nil }
         guard raw.hasPrefix("{") else { return raw }
         guard let d = raw.data(using: .utf8),

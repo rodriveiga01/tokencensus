@@ -149,10 +149,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func startWatching() {
         guard watcher == nil else { return }
+        // T3 V2 no longer appends provider event logs (frozen at migration);
+        // every V2 turn still writes the parent logs dir (server.trace.ndjson),
+        // so watch both the frozen subdir (V1 history) and its parent (V2 live).
+        let t3logsParent = (ToolPaths.t3ProviderLogs as NSString).deletingLastPathComponent
         let roots = [ToolPaths.claudeProjects, ToolPaths.codexSessions,
                      (ToolPaths.opencodeDB as NSString).deletingLastPathComponent,
                      (ToolPaths.hermesDB as NSString).deletingLastPathComponent,
-                     ToolPaths.t3ProviderLogs]
+                     ToolPaths.t3ProviderLogs, t3logsParent]
             + ToolPaths.clineTaskDirs + ToolPaths.clineSessionDirs
         let existing = roots.filter { FileManager.default.fileExists(atPath: $0) }
         guard !existing.isEmpty else {

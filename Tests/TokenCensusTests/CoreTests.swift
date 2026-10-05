@@ -256,7 +256,8 @@ private func t3StateDB(root: String, rows: [(tid: String, cwd: String, model: St
     let now = Date()
     s.upsert(TokenEvent(id: "opencode:ses_B", timestamp: now, tool: .opencode, surface: "opencode.db", model: "m", input: 5000, output: 500, total: 5500, sessionId: "ses_B", parserVersion: "opencode.v1"))
     let db = t3StateDB(root: tmp("t3db"), rows: [(tid: "tid-a", cwd: "/tmp/proj-a", model: "fallback-model")])
-    let a = T3Adapter(logDir: dir, stateDB: db)
+    // V2 isolated: the V1 counting rules must hold with no statev2 present.
+    let a = T3Adapter(logDir: dir, stateDB: db, stateV2DB: tmp("t3nov2a") + "/missing.sqlite")
     #expect(a.status() == "ok")
     #expect(a.ingest(into: s) == 2) // prt_a1 + prt_a2 only
     let t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
@@ -277,7 +278,7 @@ private func t3StateDB(root: String, rows: [(tid: String, cwd: String, model: St
     ].joined(separator: "\n")
     try? lines.write(toFile: dir + "/events.tid-c.log", atomically: true, encoding: .utf8)
     let s = LedgerStore(path: tmpDB())
-    let a = T3Adapter(logDir: dir, stateDB: tmp("t3nodb") + "/missing.db")
+    let a = T3Adapter(logDir: dir, stateDB: tmp("t3nodb") + "/missing.db", stateV2DB: tmp("t3nov2b") + "/missing.sqlite")
     #expect(a.ingest(into: s) == 1) // native row absent: gap-fill counts it
     var t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
     #expect(t.total == 1000 && t.byTool["t3code"] == 1000)
@@ -293,7 +294,7 @@ private func t3StateDB(root: String, rows: [(tid: String, cwd: String, model: St
 
 @Test func t3MissingIsNotAnError() {
     let s = LedgerStore(path: tmpDB())
-    let a = T3Adapter(logDir: tmp("t3nope") + "/x", stateDB: tmp("t3nope") + "/y.db")
+    let a = T3Adapter(logDir: tmp("t3nope") + "/x", stateDB: tmp("t3nope") + "/y.db", stateV2DB: tmp("t3nope") + "/z.sqlite")
     #expect(a.status() == "not-installed")
     #expect(a.ingest(into: s) == 0)
 }
@@ -369,4 +370,112 @@ private func t3StateDB(root: String, rows: [(tid: String, cwd: String, model: St
     let t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
     #expect(t.total == 300)
     #expect(t.byModel["gpt-5.6-luna"] == 300) // NOT 100 + NULL 200
+}
+
+// MARK: - Opencode 2 (session_v2 union)
+
+@Test func opencodeReadsSessionV2Union() {
+    // OpenCode 2 writes new sessions to session_v2; the legacy table freezes
+    // at conversion. The union is truth — neither table alone.
+    let db = tmp("oc2") + "/opencode.db"
+    let cols = "id TEXT PRIMARY KEY, project_id TEXT NOT NULL, workspace_id TEXT, parent_id TEXT, slug TEXT NOT NULL, directory TEXT NOT NULL, path TEXT, title TEXT NOT NULL, version TEXT NOT NULL, share_url TEXT, summary_additions INTEGER, summary_deletions INTEGER, summary_files INTEGER, summary_diffs TEXT, metadata TEXT, cost REAL DEFAULT 0 NOT NULL, tokens_input INTEGER DEFAULT 0 NOT NULL, tokens_output INTEGER DEFAULT 0 NOT NULL, tokens_reasoning INTEGER DEFAULT 0 NOT NULL, tokens_cache_read INTEGER DEFAULT 0 NOT NULL, tokens_cache_write INTEGER DEFAULT 0 NOT NULL, revert TEXT, permission TEXT, agent TEXT, model TEXT, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL"
+    _ = run("/usr/bin/sqlite3", db, "CREATE TABLE session(\(cols));")
+    _ = run("/usr/bin/sqlite3", db, "CREATE TABLE session_v2(\(cols));")
+    _ = run("/usr/bin/sqlite3", db, "INSERT INTO session(id,project_id,slug,directory,title,version,tokens_input,tokens_output,time_created,time_updated) VALUES('old1','p','x','/tmp/r','t','1.18.32',1000,200,1787000000000,1787000001000);")
+    _ = run("/usr/bin/sqlite3", db, "INSERT INTO session_v2(id,project_id,slug,directory,title,version,tokens_input,tokens_output,tokens_cache_read,model,time_created,time_updated) VALUES('new1','p','x','/tmp/r2','t','2.0.22',5000,500,40000,'{\"id\":\"m2\",\"providerID\":\"opencode\",\"variant\":\"xhigh\"}',1787000000000,1787000001000);")
+    let s = LedgerStore(path: tmpDB())
+    #expect(OpencodeAdapter(dbPath: db).ingest(into: s) == 2) // one row per table
+    let t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+    #expect(t.total == 6700) // 1200 legacy + 5500 OpenCode 2
+    #expect(t.byModel["m2 [xhigh]"] == 5500)
+    #expect(OpencodeAdapter(dbPath: db).ingest(into: s) == 0) // idle-skip resumes
+}
+
+// MARK: - T3 Orchestrator V2 (statev2.sqlite provider turns)
+
+/// Minimal statev2 fixture: just the projection tables the V2 scan reads.
+private func t3StateV2DB(root: String) -> String {
+    let db = root + "/statev2.sqlite"
+    _ = run("/usr/bin/sqlite3", db, "CREATE TABLE orchestration_v2_projection_provider_turns(provider_turn_id TEXT PRIMARY KEY, thread_id TEXT NOT NULL, provider_thread_id TEXT NOT NULL, node_id TEXT NOT NULL, run_attempt_id TEXT, ordinal INTEGER NOT NULL, status TEXT NOT NULL, started_at TEXT, completed_at TEXT, payload_json TEXT NOT NULL);")
+    _ = run("/usr/bin/sqlite3", db, "CREATE TABLE orchestration_v2_projection_provider_threads(provider_thread_id TEXT PRIMARY KEY, thread_id TEXT, owner_node_id TEXT, provider TEXT NOT NULL, provider_session_id TEXT, status TEXT NOT NULL, first_run_ordinal INTEGER, last_run_ordinal INTEGER, updated_at TEXT NOT NULL, payload_json TEXT NOT NULL, driver TEXT, provider_instance_id TEXT);")
+    _ = run("/usr/bin/sqlite3", db, "CREATE TABLE orchestration_v2_projection_provider_sessions(provider_session_id TEXT PRIMARY KEY, thread_id TEXT, provider TEXT NOT NULL, status TEXT NOT NULL, model TEXT, updated_at TEXT NOT NULL, payload_json TEXT NOT NULL, driver TEXT, provider_instance_id TEXT);")
+    _ = run("/usr/bin/sqlite3", db, "CREATE TABLE orchestration_v2_projection_threads(thread_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, title TEXT NOT NULL, default_provider TEXT NOT NULL, runtime_mode TEXT NOT NULL, interaction_mode TEXT NOT NULL, active_provider_thread_id TEXT, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, archived_at TEXT, deleted_at TEXT, payload_json TEXT NOT NULL, provider_instance_id TEXT);")
+    _ = run("/usr/bin/sqlite3", db, "CREATE TABLE projection_projects(project_id TEXT PRIMARY KEY, title TEXT NOT NULL, workspace_root TEXT NOT NULL, scripts_json TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT);")
+    return db
+}
+
+private func t3v2Insert(_ db: String, _ sql: String) {
+    _ = run("/usr/bin/sqlite3", db, sql)
+}
+
+@Test func t3v2CountsUncoveredWithFreshMath() {
+    // Uncovered provider (pi): counted with fresh math — input minus cache
+    // re-reads/creation, output minus reasoning — mirroring native session
+    // aggregates. The tokenUsage context snapshot is never summed, running
+    // and unavailable turns are skipped, covered claude is skipped outright.
+    let db = t3StateV2DB(root: tmp("t3v2a"))
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_sessions VALUES('ps-pi','tid-pi','pi','running','pi/gpt-x','2026-10-04T10:00:00Z','{"cwd":"/tmp/pi-proj","model":"pi/gpt-x"}','pi','pi');"#)
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_threads VALUES('pt-pi','tid-pi',NULL,'pi','ps-pi','idle',1,1,'2026-10-04T10:00:00Z','{"nativeThreadRef":{"driver":"pi","nativeId":"pi-ses-1","strength":"strong"},"nativeMetadata":{"modelSelection":{"instanceId":"pi","model":"pi/gpt-x","options":[{"id":"variant","value":"fast"}]}}}','pi','pi');"#)
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_threads VALUES('tid-pi','proj-pi','t','pi','full-access','default',NULL,'2026-10-04T10:00:00Z','2026-10-04T10:00:00Z',NULL,NULL,'{"modelSelection":{"instanceId":"pi","model":"pi/fallback"},"projectId":"proj-pi"}','pi');"#)
+    t3v2Insert(db, #"INSERT INTO projection_projects VALUES('proj-pi','p','/tmp/pi-proj','{}','2026-10-04T10:00:00Z','2026-10-04T10:00:00Z',NULL);"#)
+    // Counted turn: fresh 10000-8000-500=1500 in, 500-100=400 out.
+    // tokenUsage.inputTokens 999999 is the context-meter snapshot: ignored.
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_turns VALUES('provider-turn:provider:pi:t1','tid-pi','pt-pi','n1',NULL,1,'completed','2026-10-04T10:00:00Z','2026-10-04T10:01:00Z','{"status":"completed","startedAt":"2026-10-04T10:00:00Z","completedAt":"2026-10-04T10:01:00Z","tokenUsage":{"usedTokens":999999,"maxTokens":1048576,"inputTokens":999999,"outputTokens":99999},"turnTokenUsage":{"usageScope":"main_agent","cachedInputTokens":8000,"cacheCreationTokens":500,"reasoningTokens":100,"hasSubagents":false,"usageStatus":"complete","inputTokens":10000,"outputTokens":500}}');"#)
+    // Running turn (no usage yet): skipped.
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_turns VALUES('provider-turn:provider:pi:t2','tid-pi','pt-pi','n2',NULL,2,'running','2026-10-04T10:02:00Z',NULL,'{"status":"running","startedAt":"2026-10-04T10:02:00Z"}');"#)
+    // Failed + unavailable: skipped.
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_turns VALUES('provider-turn:provider:pi:t3','tid-pi','pt-pi','n3',NULL,3,'failed','2026-10-04T10:03:00Z','2026-10-04T10:04:00Z','{"status":"failed","startedAt":"2026-10-04T10:03:00Z","completedAt":"2026-10-04T10:04:00Z","turnTokenUsage":{"usageScope":"main_agent","hasSubagents":false,"usageStatus":"unavailable"}}');"#)
+    // Zero-fresh turn (all input was cache re-read): skipped, never zero-filled.
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_turns VALUES('provider-turn:provider:pi:t4','tid-pi','pt-pi','n4',NULL,4,'completed','2026-10-04T10:05:00Z','2026-10-04T10:06:00Z','{"status":"completed","startedAt":"2026-10-04T10:05:00Z","completedAt":"2026-10-04T10:06:00Z","turnTokenUsage":{"usageScope":"main_agent","cachedInputTokens":900,"cacheCreationTokens":0,"reasoningTokens":0,"hasSubagents":false,"usageStatus":"complete","inputTokens":900,"outputTokens":0}}');"#)
+    // Covered provider (claude): skipped outright, native homes are truth.
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_threads VALUES('pt-cl','tid-cl',NULL,'claude','ps-cl','idle',1,1,'2026-10-04T10:00:00Z','{"nativeThreadRef":{"driver":"claude","nativeId":"cl-ses-9","strength":"strong"}}','claude','claude');"#)
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_turns VALUES('provider-turn:provider:claude:c1','tid-cl','pt-cl','n9',NULL,1,'completed','2026-10-04T10:00:00Z','2026-10-04T10:01:00Z','{"status":"completed","startedAt":"2026-10-04T10:00:00Z","completedAt":"2026-10-04T10:01:00Z","turnTokenUsage":{"usageScope":"main_agent","cachedInputTokens":0,"cacheCreationTokens":0,"reasoningTokens":0,"hasSubagents":false,"usageStatus":"complete","inputTokens":7000,"outputTokens":3000}}');"#)
+    let s = LedgerStore(path: tmpDB())
+    // V1 log dir absent: exercises the V2-only ingest path.
+    let a = T3Adapter(logDir: tmp("t3v2nolog") + "/x", stateDB: tmp("t3v2nodb") + "/y.db", stateV2DB: db)
+    #expect(a.status() == "ok")
+    #expect(a.ingest(into: s) == 1) // the pi turn only
+    let t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+    #expect(t.total == 1900) // NOT 510000+ (fresh math, snapshot ignored)
+    #expect(t.byTool["t3code"] == 1900)
+    #expect(t.byModel["pi/gpt-x [fast]"] == 1900) // thread binding wins
+    #expect(a.ingest(into: s) == 0) // signature idle-skip: rescan adds nothing
+    let t2 = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+    #expect(t2.total == 1900)
+}
+
+@Test func t3v2OpencodeGapfillAndPromote() {
+    // opencode V2 turns gap-fill while the native row is absent, skip while
+    // present, and promote away (like V1) when the native row arrives later.
+    let db = t3StateV2DB(root: tmp("t3v2b"))
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_sessions VALUES('ps-oc','tid-oc','opencode','running','opencode/m','2026-10-04T10:00:00Z','{"cwd":"/tmp/oc"}','opencode','opencode');"#)
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_threads VALUES('pt-oc','tid-oc',NULL,'opencode','ps-oc','idle',1,1,'2026-10-04T10:00:00Z','{"nativeThreadRef":{"driver":"opencode","nativeId":"ses_OC","strength":"strong"}}','opencode','opencode');"#)
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_threads VALUES('tid-oc','proj-oc','t','opencode','full-access','default',NULL,'2026-10-04T10:00:00Z','2026-10-04T10:00:00Z',NULL,NULL,'{"modelSelection":{"instanceId":"opencode","model":"opencode/m","options":[{"id":"variant","value":"xhigh"}]},"projectId":"proj-oc"}','opencode');"#)
+    t3v2Insert(db, #"INSERT INTO projection_projects VALUES('proj-oc','p','/tmp/oc','{}','2026-10-04T10:00:00Z','2026-10-04T10:00:00Z',NULL);"#)
+    t3v2Insert(db, #"INSERT INTO orchestration_v2_projection_provider_turns VALUES('provider-turn:provider:opencode:o1','tid-oc','pt-oc','n1',NULL,1,'completed','2026-10-04T10:00:00Z','2026-10-04T10:01:00Z','{"status":"completed","startedAt":"2026-10-04T10:00:00Z","completedAt":"2026-10-04T10:01:00Z","turnTokenUsage":{"usageScope":"main_agent","cachedInputTokens":0,"cacheCreationTokens":0,"reasoningTokens":0,"hasSubagents":false,"usageStatus":"complete","inputTokens":700,"outputTokens":300}}');"#)
+    let nov2 = tmp("t3v2nolog2") + "/x"
+    func ad() -> T3Adapter {
+        T3Adapter(logDir: nov2, stateDB: tmp("t3v2nodb2") + "/y.db", stateV2DB: db)
+    }
+    // Native row already present: the V2 mirror is never counted.
+    do {
+        let s = LedgerStore(path: tmpDB())
+        s.upsert(TokenEvent(id: "opencode:ses_OC", timestamp: Date(), tool: .opencode, surface: "opencode.db", input: 700, output: 300, total: 1000, sessionId: "ses_OC", parserVersion: "opencode.v1"))
+        #expect(ad().ingest(into: s) == 0)
+        #expect(s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000)).byTool["t3code"] == nil)
+    }
+    // Native absent: gap-fill counts it; late native arrival promotes it away.
+    do {
+        let s = LedgerStore(path: tmpDB())
+        #expect(ad().ingest(into: s) == 1)
+        var t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+        #expect(t.total == 1000 && t.byTool["t3code"] == 1000)
+        #expect(t.byModel["opencode/m [xhigh]"] == 1000) // app-thread binding + variant
+        s.upsert(TokenEvent(id: "opencode:ses_OC", timestamp: Date(), tool: .opencode, surface: "opencode.db", input: 700, output: 300, total: 1000, sessionId: "ses_OC", parserVersion: "opencode.v1"))
+        #expect(ad().ingest(into: s) == 0) // no new turns; promotion still runs
+        t = s.totals(from: Date(timeIntervalSince1970: 0), to: Date(timeIntervalSince1970: 9_000_000_000))
+        #expect(t.total == 1000) // NOT 2000
+        #expect(t.byTool["t3code"] == nil)
+        #expect(t.byTool["opencode"] == 1000)
+    }
 }

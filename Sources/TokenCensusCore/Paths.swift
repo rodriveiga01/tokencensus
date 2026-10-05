@@ -14,10 +14,13 @@ public enum ToolPaths {
 
     public static var opencodeDB: String { home + "/.local/share/opencode/opencode.db" }
 
-    /// T3 Code: provider event logs (per-thread step deltas) + state.sqlite
-    /// (thread cwd/model context). All access is read-only.
+    /// T3 Code: provider event logs (per-thread step deltas, Orchestrator V1)
+    /// + state.sqlite (thread cwd/model context) + statev2.sqlite
+    /// (Orchestrator V2 turn deltas, subagent/delegate lineage).
+    /// All access is read-only.
     public static var t3ProviderLogs: String { home + "/.t3/userdata/logs/provider" }
     public static var t3StateDB: String { home + "/.t3/userdata/state.sqlite" }
+    public static var t3StateV2DB: String { home + "/.t3/userdata/statev2.sqlite" }
 
     /// Cline: three surfaces, one core. All optional; dedup across homes by task/session ID.
     public static var clineTaskDirs: [String] {

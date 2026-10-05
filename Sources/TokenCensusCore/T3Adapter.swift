@@ -26,14 +26,38 @@ import SQLite3
 /// context lines arrive once, step lines append for the thread's whole life).
 /// cwd/model fallback comes from state.sqlite provider_session_runtime
 /// (read-only, Hermes-style); rows stay nil-cwd honest when it is absent.
+///
+/// ORCHESTRATOR V2 (Oct 2026, `t3.v2` rows): V2 no longer writes provider
+/// event logs — the V1 files freeze at migration. Turn usage now lives in
+/// statev2.sqlite `orchestration_v2_projection_provider_turns`, one row per
+/// provider turn carrying BOTH a context-window snapshot (`tokenUsage`:
+/// usedTokens/maxTokens — the live meter, NEVER summed, same snapshot trap
+/// as V1 `turn.completed`) and the per-turn billing delta (`turnTokenUsage`:
+/// usageScope main_agent, status complete/partial — the ONLY thing summed).
+/// `turnTokenUsage.inputTokens` INCLUDES cached re-reads and `outputTokens`
+/// INCLUDES reasoning (upstream `TurnTokenUsage` contract), while native
+/// session rows (opencode `session`/`session_v2`) store fresh input and
+/// non-reasoning output in separate cache/reasoning columns. Gap-fill rows
+/// therefore store fresh math — input−cached−creation, output−reasoning —
+/// verified EXACT against session_v2 aggregates (child ses: 23007/4726 +
+/// cache 103733 + reasoning 1414 all four match). Without the subtraction a
+/// cached workload would count ~14x its native twin, and promotion (V2 row
+/// swapped for the native row on arrival) would collapse totals.
+/// Main-agent turns and subagent/delegate child-thread turns are disjoint
+/// rows (`hasSubagents` is a flag, not an aggregate) — each counted once.
+/// OpenCode 2 writes T3-driven sessions to `session_v2`, so the covered
+/// check hits both native tables via the shared `opencode:<ses>` id.
 public struct T3Adapter: Adapter {
     public let tool: ToolID = .t3code
     public let version = "t3.v1"
+    private let versionV2 = "t3.v2"
     private let logDir: String
     private let stateDB: String
-    public init(logDir: String? = nil, stateDB: String? = nil) {
+    private let stateV2DB: String
+    public init(logDir: String? = nil, stateDB: String? = nil, stateV2DB: String? = nil) {
         self.logDir = logDir ?? ToolPaths.t3ProviderLogs
         self.stateDB = stateDB ?? ToolPaths.t3StateDB
+        self.stateV2DB = stateV2DB ?? ToolPaths.t3StateV2DB
     }
 
     /// Providers whose usage already lands in native logs (or will, via the
@@ -41,25 +65,44 @@ public struct T3Adapter: Adapter {
     private static let coveredProviders: Set<String> = ["opencode", "claude", "codex"]
 
     public func status() -> String {
-        (ToolPaths.exists(logDir) || ToolPaths.exists(stateDB)) ? "ok" : "not-installed"
+        (ToolPaths.exists(logDir) || ToolPaths.exists(stateDB) || ToolPaths.exists(stateV2DB)) ? "ok" : "not-installed"
     }
 
     public func ingest(into store: LedgerStore) -> Int {
-        guard let files = try? FileManager.default.contentsOfDirectory(atPath: logDir) else { return 0 }
+        guard let files = try? FileManager.default.contentsOfDirectory(atPath: logDir) else { return ingestV2Only(into: store) }
         let logs = files.filter { $0.hasPrefix("events.") && $0.contains(".log") }
             .map { logDir + "/" + $0 }.sorted()
-        guard !logs.isEmpty else { return 0 }
         var turnModels = loadTurnModels(store: store)
         var added = 0
         // opencode gap-fill sessions touched this run -> merge into tracking.
         var touched: [String: [String]] = [:]
-        for f in logs {
-            added += ingestFile(f, store: store, turnModels: &turnModels, touched: &touched)
+        if !logs.isEmpty {
+            for f in logs {
+                added += ingestFile(f, store: store, turnModels: &turnModels, touched: &touched)
+            }
+            saveTurnModels(turnModels, store: store)
         }
-        saveTurnModels(turnModels, store: store)
+        added += ingestV2(into: store, touched: &touched)
         // Promotion (Cline-hub precedent): a native opencode row that arrived
         // after we gap-filled now owns the session — delete our provisional
         // rows so the native row is the single truth regardless of order.
+        // Covers V1 (`t3:`) and V2 (`t3v2:`) gap-fill ids alike.
+        var tracked = loadTracked(store: store)
+        for (ses, ids) in touched { tracked[ses, default: []].append(contentsOf: ids) }
+        var stale: [String] = []
+        for (ses, ids) in tracked where store.hasEvent(id: "opencode:\(ses)") {
+            stale.append(contentsOf: ids)
+            tracked.removeValue(forKey: ses)
+        }
+        if !stale.isEmpty { store.deleteEvents(ids: stale) }
+        saveTracked(tracked, store: store)
+        return added
+    }
+
+    /// V1 log dir absent (or empty) — V2-only path, same promotion tail.
+    private func ingestV2Only(into store: LedgerStore) -> Int {
+        var touched: [String: [String]] = [:]
+        let added = ingestV2(into: store, touched: &touched)
         var tracked = loadTracked(store: store)
         for (ses, ids) in touched { tracked[ses, default: []].append(contentsOf: ids) }
         var stale: [String] = []
@@ -139,7 +182,182 @@ public struct T3Adapter: Adapter {
         return added
     }
 
-    // MARK: - Line shapes
+    // MARK: - Orchestrator V2 (statev2.sqlite provider turns)
+
+    /// V2 turn scan. The provider_turns table is tiny (tens of rows — the
+    /// 655M DB is transcripts, which we never touch), so a full scan on
+    /// signature change is cheaper than any incremental bookkeeping.
+    /// Upserts by stable id make rescans total-neutral.
+    private func ingestV2(into store: LedgerStore, touched: inout [String: [String]]) -> Int {
+        guard FileManager.default.fileExists(atPath: stateV2DB) else { return 0 }
+        // Idle fast path, same contract as the opencode rescan.
+        let sigKey = "sig.t3.v2"
+        let sig = FileSig.of([stateV2DB, stateV2DB + "-wal", stateV2DB + "-shm"])
+        if store.pref(sigKey) == sig { return 0 }
+        var db: OpaquePointer?
+        guard sqlite3_open_v2("file:\(stateV2DB)?mode=ro", &db, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX, nil) == SQLITE_OK, let db else {
+            store.recordGap(tool: .t3code, reason: "v2-open-failed")
+            return 0
+        }
+        defer { sqlite3_close(db) }
+        sqlite3_busy_timeout(db, 1000)
+        // Context maps: provider thread -> provider/session/app-thread refs,
+        // sessions -> cwd/model, app threads -> model/project, projects -> root.
+        let pThreads = Self.stringMap(db, sql: "SELECT provider_thread_id, payload_json FROM orchestration_v2_projection_provider_threads")
+        guard !pThreads.isEmpty else { return 0 } // pre-V2 or empty DB: V1 path owns it
+        let pSessions = Self.stringMap(db, sql: "SELECT provider_session_id, payload_json FROM orchestration_v2_projection_provider_sessions")
+        let appThreads = Self.stringMap(db, sql: "SELECT thread_id, payload_json FROM orchestration_v2_projection_threads")
+        let subagents = Self.stringMap(db, sql: "SELECT child_thread_id, payload_json FROM orchestration_v2_projection_subagents")
+        var projects: [String: String] = [:]
+        if let rows = Self.rows(db, sql: "SELECT project_id, workspace_root FROM projection_projects") {
+            for r in rows where r.count >= 2 { projects[r[0]] = r[1] }
+        }
+        guard let turns = Self.rows(db, sql: "SELECT provider_turn_id, thread_id, provider_thread_id, payload_json FROM orchestration_v2_projection_provider_turns") else { return 0 }
+        var batch: [TokenEvent] = []
+        batch.reserveCapacity(turns.count)
+        for t in turns where t.count >= 4 {
+            let turnId = t[0], tid = t[1], ptid = t[2]
+            guard let o = Self.jsonObject(t[3]),
+                  let ttu = o["turnTokenUsage"] as? [String: Any],
+                  let usageStatus = ttu["usageStatus"] as? String,
+                  (usageStatus == "complete" || usageStatus == "partial"),
+                  let status = o["status"] as? String,
+                  (status == "completed" || status == "failed" || status == "interrupted") else { continue }
+            // Fresh math (mirrors native session aggregates exactly):
+            // input INCLUDES cache re-reads, output INCLUDES reasoning.
+            let input = (ttu["inputTokens"] as? Int) ?? 0
+            let output = (ttu["outputTokens"] as? Int) ?? 0
+            let cached = (ttu["cachedInputTokens"] as? Int) ?? 0
+            let created = (ttu["cacheCreationTokens"] as? Int) ?? 0
+            let reasoning = (ttu["reasoningTokens"] as? Int) ?? 0
+            let freshIn = max(0, input - cached - created)
+            let freshOut = max(0, output - reasoning)
+            let total = freshIn + freshOut
+            guard total > 0 else { continue }
+            // Provider attribution via the owning provider thread; fall back
+            // to the turn id's own `provider-turn:provider:<driver>:` segment.
+            // Unknown providers count (no native adapter could own them).
+            var provider = ""
+            var nativeSes: String? = nil
+            var pThreadModel: String? = nil
+            var sessionId = ""
+            if let pto = pThreads[ptid].flatMap(Self.jsonObject) {
+                provider = ((pto["driver"] as? String) ?? "").lowercased()
+                if provider.isEmpty { provider = ((pto["provider"] as? String) ?? "").lowercased() }
+                if let ref = pto["nativeThreadRef"] as? [String: Any] {
+                    nativeSes = ref["nativeId"] as? String
+                }
+                if let meta = pto["nativeMetadata"] as? [String: Any],
+                   let sel = meta["modelSelection"] as? [String: Any] {
+                    pThreadModel = Self.selectionModel(sel)
+                }
+                sessionId = (pto["providerSessionId"] as? String) ?? ""
+            }
+            if provider.isEmpty { provider = Self.providerFromTurnId(turnId) }
+            let ses = (nativeSes?.isEmpty == false ? nativeSes : nil) ?? tid
+            if Self.coveredProviders.contains(provider) {
+                if provider == "opencode" {
+                    if store.hasEvent(id: "opencode:\(ses)") { continue }
+                } else {
+                    continue // claude/codex: native homes are truth, always
+                }
+            }
+            guard let ts = Parse.date(o["completedAt"] as? String ?? o["startedAt"] as? String) else { continue }
+            // Model: live session first, then thread binding, then app
+            // thread selection, then subagent record. cwd: live session,
+            // else the app thread's project root (subagents via parent).
+            var model = pThreadModel
+            var cwd: String? = nil
+            if let pso = sessionId.isEmpty ? nil : pSessions[sessionId].flatMap(Self.jsonObject) {
+                if let m = pso["model"] as? String, !m.isEmpty, model == nil { model = m }
+                cwd = pso["cwd"] as? String
+            }
+            var appTid: String? = tid
+            if appThreads[tid] == nil, let sub = subagents[tid].flatMap(Self.jsonObject) {
+                if model == nil { model = sub["model"] as? String }
+                appTid = sub["threadId"] as? String
+            }
+            if let at = appTid, let ao = appThreads[at].flatMap(Self.jsonObject) {
+                if model == nil, let sel = ao["modelSelection"] as? [String: Any] {
+                    model = Self.selectionModel(sel)
+                }
+                if cwd == nil, let pid = ao["projectId"] as? String {
+                    cwd = projects[pid]
+                }
+            }
+            let id = "t3v2:\(turnId)"
+            let e = TokenEvent(
+                id: id, timestamp: ts, tool: .t3code, surface: "statev2",
+                model: OpencodeAdapter.cleanModel(model),
+                input: freshIn == 0 ? nil : freshIn, output: freshOut == 0 ? nil : freshOut,
+                cacheRead: cached == 0 ? nil : cached, cacheWrite: created == 0 ? nil : created,
+                reasoning: reasoning == 0 ? nil : reasoning,
+                total: total, sessionId: ses, cwd: cwd,
+                repoRoot: RepoResolve.root(for: cwd), branch: nil, parserVersion: versionV2)
+            batch.append(e)
+            if provider == "opencode" { touched[ses, default: []].append(id) }
+        }
+        let added = store.upsertMany(batch)
+        store.setPref(sigKey, sig)
+        return added
+    }
+
+    /// Single-column payload map (id -> payload_json). Nil when the table
+    /// is absent (pre-V2 DB) — the caller decides what that means.
+    private static func stringMap(_ db: OpaquePointer?, sql: String) -> [String: String] {
+        guard let rows = rows(db, sql: sql) else { return [:] }
+        var out: [String: String] = [:]
+        out.reserveCapacity(rows.count)
+        for r in rows where r.count >= 2 { out[r[0]] = r[1] }
+        return out
+    }
+
+    private static func rows(_ db: OpaquePointer?, sql: String) -> [[String]]? {
+        var st: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &st, nil) == SQLITE_OK, let st else { return nil }
+        defer { sqlite3_finalize(st) }
+        var out: [[String]] = []
+        while sqlite3_step(st) == SQLITE_ROW {
+            var r: [String] = []
+            let n = sqlite3_column_count(st)
+            for i in 0..<n {
+                if let p = sqlite3_column_text(st, i) { r.append(String(cString: p)) }
+                else { r.append("") }
+            }
+            out.append(r)
+        }
+        return out
+    }
+
+    private static func jsonObject(_ s: String) -> [String: Any]? {
+        guard let d = s.data(using: .utf8),
+              let o = try? JSONSerialization.jsonObject(with: d) as? [String: Any] else { return nil }
+        return o
+    }
+
+    /// `modelSelection: {model, options:[{id,value}]}` -> "model [variant]",
+    /// same display contract as the opencode JSON-blob cleaner.
+    private static func selectionModel(_ sel: [String: Any]) -> String? {
+        guard let m = sel["model"] as? String, !m.isEmpty else { return nil }
+        if let opts = sel["options"] as? [[String: Any]] {
+            for o in opts where (o["id"] as? String) == "variant" {
+                if let v = o["value"] as? String, !v.isEmpty { return "\(m) [\(v)]" }
+            }
+        }
+        return m
+    }
+
+    /// `provider-turn:provider:<driver>:…` — last-resort attribution when
+    /// the provider_threads row is missing (pruned projections).
+    private static func providerFromTurnId(_ turnId: String) -> String {
+        let parts = turnId.split(separator: ":", omittingEmptySubsequences: false).map(String.init)
+        if parts.count >= 3, parts[0] == "provider-turn", parts[1] == "provider" {
+            return parts[2].lowercased()
+        }
+        return ""
+    }
+
+    // MARK: - Line shapes (V1)
 
     /// Every provider-log line carries a `[timestamp] CANON:` / `NTIVE:`
     /// prefix (note the upstream typo — handled generically by cutting to the
