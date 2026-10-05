@@ -1,0 +1,49 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}" BUILD="${GITHUB_RUN_NUMBER}" ./scripts/build-dmg.sh
+          ls -lh .build/*.dmg
+
+      - name: Zip tok CLI
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          ditto -c -k --sequesterRsrc --keepParent .build/release/tok ".build/tok-${VERSION}-macOS-arm64.zip" 2>/dev/null \
+            || (cd .build/release && zip -j "../tok-${VERSION}-macOS-arm64.zip" tok)
+          ls -lh .build/*.zip
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            .build/*.dmg
+            .build/*.zip
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            1. Download the `.dmg` below.
+            2. Open it, drag **TokenCensusApp.app** onto **Applications**.
+            3. Open from Applications or Spotlight.
+
+            > First launch (unsigned build): right-click the app > **Open** > **Open**, to bypass Gatekeeper once.
+
+            Optional CLI: `sudo cp /Volumes/TokenCensus*/tok /usr/local/bin/tok && tok ingest && tok today`
+
+            Requires macOS 14+, Apple Silicon or Intel via Rosetta. Counts stay on your Mac.

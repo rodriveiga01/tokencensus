@@ -7,6 +7,7 @@
 ![cloud: none — local only](https://img.shields.io/badge/cloud-none_%E2%80%94_local_only-green)
 ![tools: 6](https://img.shields.io/badge/tools-6-purple)
 [![CI](https://github.com/rodriveiga01/tokencensus/actions/workflows/ci.yml/badge.svg)](https://github.com/rodriveiga01/tokencensus/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/rodriveiga01/tokencensus)](https://github.com/rodriveiga01/tokencensus/releases/latest)
 
 > One hero number. No cost engine, no cloud, no account, no judgment about your 3am burn.
 >
@@ -46,9 +47,21 @@ No refunds. No loyalty points. Just counts.
 - ⌨️ `tok` CLI for ingest, today/week, caps, share card, evidence pack — plus easter eggs (`flex`, `tibo`, `zen`)
 - 🕳️ Forward from install. Gaps badged, never silent zeros.
 
+## ⬇️ Download
+
+Grab the ready-to-install `.dmg` from [Releases](https://github.com/rodriveiga01/tokencensus/releases/latest):
+
+1. Download `TokenCensus-<version>-macOS-arm64.dmg`.
+2. Open it, drag **TokenCensusApp.app** onto **Applications**.
+3. Open from Applications or Spotlight.
+
+> First launch (unsigned build): right-click the app > **Open** > **Open**, to bypass Gatekeeper once. Requires macOS 14+.
+
+The `.dmg` also contains the `tok` CLI (optional: `sudo cp /Volumes/TokenCensus*/tok /usr/local/bin/tok`). Or build from source below.
+
 ## Getting Started
 
-Requires macOS 14+, Swift 6.0.
+Requires macOS 14+, Swift 6.0. *Prefer the `.dmg` above — source build is for contributors.*
 
 ```sh
 swift build
